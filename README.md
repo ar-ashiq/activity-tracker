@@ -48,3 +48,8 @@ Install the required packages:
 ```bash
 pip install -r requirements.txt
 ```
+
+Run the main file
+```bash
+python main.py
+```
