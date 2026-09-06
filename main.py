@@ -1,6 +1,5 @@
 from preprocessing.removeColumns import remove_columns
 
-
 def main():
 	remove_columns()
 
