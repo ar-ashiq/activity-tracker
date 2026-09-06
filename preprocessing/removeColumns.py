@@ -2,8 +2,10 @@ import pandas as pd
 import os
 import glob
 
-# Folder containing your CSV files
-folder_path = "../ExtraSensory.per_uuid_features_labels"
+# Folder containing your CSV files with the labels
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+folder_path = os.path.join(project_root, "datasets")
+
 
 # Phrases to search for in column headings
 phrases = [
