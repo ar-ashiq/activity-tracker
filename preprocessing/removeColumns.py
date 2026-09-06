@@ -66,49 +66,40 @@ phrases = [
     "label:CLEANING"
 ]
 
-# Get all CSV files in the folder
-csv_files = glob.glob(os.path.join(folder_path, "*.csv"))
+def remove_columns(input_folder=folder_path):
+    """Remove unwanted columns from every CSV file in the input folder."""
+    csv_files = glob.glob(os.path.join(input_folder, "*.csv"))
 
-for file in csv_files:
+    for file in csv_files:
+        print(f"\nProcessing: {os.path.basename(file)}")
 
-    print(f"\nProcessing: {os.path.basename(file)}")
+        df = pd.read_csv(file)
 
-    # Read CSV
-    df = pd.read_csv(file)
+        columns_to_remove = [
+            col for col in df.columns
+            if any(phrase in col for phrase in phrases)
+        ]
+        df = df.drop(columns=columns_to_remove)
 
-    # --------------------------------------------------
-    # Find columns whose heading contains any phrase
-    # --------------------------------------------------
+        computer_col = "label:COMPUTER_WORK"
+        sitting_col = "label:SITTING"
 
-    columns_to_remove = [
-        col for col in df.columns
-        if any(phrase in col for phrase in phrases)
-    ]
+        if computer_col in df.columns and sitting_col in df.columns:
+            df[sitting_col] = df[[computer_col, sitting_col]].max(axis=1, skipna=True)
 
-    # Remove those columns
-    df = df.drop(columns=columns_to_remove)
+            both_empty = df[[computer_col, sitting_col]].isna().all(axis=1)
+            df.loc[both_empty, sitting_col] = float("nan")
 
-    # Combine COMPUTER_WORK and SITTING using OR logic
-    computer_col = "label:COMPUTER_WORK"
-    sitting_col = "label:SITTING"
+            df.drop(columns=[computer_col], inplace=True)
 
-    if computer_col in df.columns and sitting_col in df.columns:
+        df.to_csv(file, index=False)
 
-        # OR logic: if either column is 1.0, result is 1.0
-        df[sitting_col] = df[[computer_col, sitting_col]].max(axis=1, skipna=True)
+        print("Removed columns:")
+        for col in columns_to_remove:
+            print(f"  - {col}")
 
-        # Keep both empty as empty
-        both_empty = df[[computer_col, sitting_col]].isna().all(axis=1)
-        df.loc[both_empty, sitting_col] = float("nan")
+    print("\nDone! All CSV files have been processed.")
 
-        # Remove COMPUTER_WORK column
-        df.drop(columns=[computer_col], inplace=True)
 
-    # Save back to the same CSV file
-    df.to_csv(file, index=False)
-
-    print("Removed columns:")
-    for col in columns_to_remove:
-        print(f"  - {col}")
-
-print("\nDone! All CSV files have been processed.")
+if __name__ == "__main__":
+    remove_columns()
