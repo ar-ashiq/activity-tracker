@@ -19,18 +19,13 @@ for user_id in sorted(os.listdir(ACC_DIR)):
 
     file_medians = []
 
-    # Process every ACC CSV for this user
     for acc_filename in sorted(os.listdir(acc_user_dir)):
 
         if not acc_filename.endswith(".csv"):
             continue
 
-        # Example:
-        # 1449601597.m_raw_acc_25Hz.csv
         timestamp_id = acc_filename.split(".")[0]
 
-        # Corresponding gyro file:
-        # 1449601597_25Hz.csv
         gyro_filename = f"{timestamp_id}_25Hz.csv"
 
         acc_file = os.path.join(acc_user_dir, acc_filename)
@@ -40,28 +35,22 @@ for user_id in sorted(os.listdir(ACC_DIR)):
             print(f"{user_id}: Gyro file missing -> {gyro_filename}")
             continue
 
-        # Read files
         acc = pd.read_csv(acc_file)
         gyro = pd.read_csv(gyro_file)
 
-        # Use matching number of samples
         n = min(len(acc), len(gyro))
 
         if n == 0:
             continue
 
-        # Timestamp shift
         shift = (
-            gyro["timestamp"].iloc[:n].to_numpy()
-            - acc["timestamp"].iloc[:n].to_numpy()
+            gyro["timestamp"].iloc[:n].to_numpy() - acc["timestamp"].iloc[:n].to_numpy()
         )
 
-        # Median shift for this file
         file_median = np.median(shift)
 
         file_medians.append(file_median)
 
-    # Average of the medians for this user
     if file_medians:
 
         user_average_median = np.mean(file_medians)

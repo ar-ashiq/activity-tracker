@@ -1,8 +1,3 @@
-# ============================================================
-# ACTIVITY RECOGNITION USING ACCELEROMETER + GYROSCOPE
-# Task 1: Walking / Running / Sitting
-# ============================================================
-
 import os
 import glob
 import pickle
@@ -15,7 +10,7 @@ from sklearn.metrics import (
     classification_report,
     confusion_matrix,
     ConfusionMatrixDisplay,
-    accuracy_score
+    accuracy_score,
 )
 
 import tensorflow as tf
@@ -23,19 +18,11 @@ from tensorflow.keras import layers, models
 from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint
 
 
-# ============================================================
-# 1. PATHS
-# ============================================================
-
 DATA_DIR = "/Users/ashiqar/chore/ubiquitous/Codes/datasets/synchronized_outputs"
 
 MODEL_PATH = "activity_recognition_cnn.keras"
 SCALER_PATH = "activity_scaler.pkl"
 
-
-# ============================================================
-# 2. CONFIGURATION
-# ============================================================
 
 WINDOW_SIZE = 100
 
@@ -49,32 +36,19 @@ CHANNELS = [
     "acc_magnitude",
     "gyro_magnitude",
     "acc_magnitude_change",
-    "gyro_magnitude_change"
+    "gyro_magnitude_change",
 ]
 
-LABEL_MAP = {
-    "Walking": 0,
-    "Running": 1,
-    "Sitting": 2
-}
+LABEL_MAP = {"Walking": 0, "Running": 1, "Sitting": 2}
 
-CLASS_NAMES = [
-    "Walking",
-    "Running",
-    "Sitting"
-]
+CLASS_NAMES = ["Walking", "Running", "Sitting"]
 
 NUM_CLASSES = len(CLASS_NAMES)
 
 
-# ============================================================
-# 3. FIND USERS
-# ============================================================
-
-users = sorted([
-    d for d in os.listdir(DATA_DIR)
-    if os.path.isdir(os.path.join(DATA_DIR, d))
-])
+users = sorted(
+    [d for d in os.listdir(DATA_DIR) if os.path.isdir(os.path.join(DATA_DIR, d))]
+)
 
 print("Users found:", len(users))
 
@@ -82,24 +56,10 @@ for user in users:
     print(user)
 
 
-# ============================================================
-# 4. CHECK THAT WE HAVE 15 USERS
-# ============================================================
-
 if len(users) != 15:
     print("\nWARNING:")
     print("Expected 15 users, but found", len(users))
 
-
-# ============================================================
-# 5. SPLIT USERS
-# ============================================================
-# IMPORTANT:
-# We split by USER, not by individual files.
-#
-# This prevents data leakage.
-# A user's data must not appear in both training and testing.
-# ============================================================
 
 rng = np.random.default_rng(42)
 
@@ -128,10 +88,6 @@ for user in test_users:
     print(" ", user)
 
 
-# ============================================================
-# 6. FUNCTION TO LOAD DATA
-# ============================================================
-
 def load_user_data(user_list):
 
     X = []
@@ -141,14 +97,9 @@ def load_user_data(user_list):
 
         user_dir = os.path.join(DATA_DIR, user)
 
-        csv_files = glob.glob(
-            os.path.join(user_dir, "*.csv")
-        )
+        csv_files = glob.glob(os.path.join(user_dir, "*.csv"))
 
-        print(
-            f"\nUser {user}: "
-            f"{len(csv_files)} CSV files found"
-        )
+        print(f"\nUser {user}: " f"{len(csv_files)} CSV files found")
 
         for file_path in csv_files:
 
@@ -160,65 +111,26 @@ def load_user_data(user_list):
                 print("Error:", e)
                 continue
 
-
-            # ------------------------------------------------
-            # Check required columns
-            # ------------------------------------------------
-
-            missing_columns = [
-                col for col in CHANNELS
-                if col not in data.columns
-            ]
+            missing_columns = [col for col in CHANNELS if col not in data.columns]
 
             if missing_columns:
-                print(
-                    "Skipping file because columns are missing:",
-                    file_path
-                )
+                print("Skipping file because columns are missing:", file_path)
                 continue
 
-
-            # ------------------------------------------------
-            # Determine label
-            # ------------------------------------------------
-
             if "label" not in data.columns:
-                print(
-                    "Skipping file because label column missing:",
-                    file_path
-                )
+                print("Skipping file because label column missing:", file_path)
                 continue
 
             label_name = str(data["label"].iloc[0])
-
-
-            # ------------------------------------------------
-            # Keep only our 3 activities
-            # ------------------------------------------------
 
             if label_name not in LABEL_MAP:
                 continue
 
             label = LABEL_MAP[label_name]
 
-
-            # ------------------------------------------------
-            # Select sensor data
-            # ------------------------------------------------
-
             sensor_data = data[CHANNELS].copy()
 
-
-            # ------------------------------------------------
-            # Remove rows containing NaN
-            # ------------------------------------------------
-
             sensor_data = sensor_data.dropna()
-
-
-            # ------------------------------------------------
-            # Check number of samples
-            # ------------------------------------------------
 
             if len(sensor_data) < WINDOW_SIZE:
 
@@ -230,46 +142,18 @@ def load_user_data(user_list):
 
                 continue
 
+            sensor_data = sensor_data.iloc[:WINDOW_SIZE]
 
-            # ------------------------------------------------
-            # Take first 500 samples
-            # ------------------------------------------------
-
-            sensor_data = sensor_data.iloc[
-                :WINDOW_SIZE
-            ]
-
-
-            # ------------------------------------------------
-            # Convert to numpy
-            # ------------------------------------------------
-
-            window = sensor_data.values.astype(
-                np.float32
-            )
-
-
-            # ------------------------------------------------
-            # Add to dataset
-            # ------------------------------------------------
+            window = sensor_data.values.astype(np.float32)
 
             X.append(window)
             y.append(label)
-
-
-    # --------------------------------------------------------
-    # Convert lists to numpy arrays
-    # --------------------------------------------------------
 
     X = np.array(X, dtype=np.float32)
     y = np.array(y, dtype=np.int32)
 
     return X, y
 
-
-# ============================================================
-# 7. LOAD TRAINING DATA
-# ============================================================
 
 print("\n========================================")
 print("LOADING TRAINING DATA")
@@ -282,10 +166,6 @@ print("X_train:", X_train.shape)
 print("y_train:", y_train.shape)
 
 
-# ============================================================
-# 8. LOAD VALIDATION DATA
-# ============================================================
-
 print("\n========================================")
 print("LOADING VALIDATION DATA")
 print("========================================")
@@ -296,10 +176,6 @@ print("\nValidation data shape:")
 print("X_val:", X_val.shape)
 print("y_val:", y_val.shape)
 
-
-# ============================================================
-# 9. LOAD TEST DATA
-# ============================================================
 
 print("\n========================================")
 print("LOADING TEST DATA")
@@ -312,10 +188,6 @@ print("X_test:", X_test.shape)
 print("y_test:", y_test.shape)
 
 
-# ============================================================
-# 10. CHECK DATASET
-# ============================================================
-
 if len(X_train) == 0:
     raise ValueError("Training dataset is empty!")
 
@@ -325,10 +197,6 @@ if len(X_val) == 0:
 if len(X_test) == 0:
     raise ValueError("Test dataset is empty!")
 
-
-# ============================================================
-# 11. SHOW CLASS DISTRIBUTION
-# ============================================================
 
 print("\n========================================")
 print("CLASS DISTRIBUTION")
@@ -348,62 +216,25 @@ for i, class_name in enumerate(CLASS_NAMES):
     )
 
 
-# ============================================================
-# 12. NORMALIZATION
-# ============================================================
-#
-# VERY IMPORTANT:
-#
-# We fit the scaler ONLY using training data.
-#
-# We then use the same scaler for validation and testing.
-# ============================================================
-
 print("\n========================================")
 print("NORMALIZATION")
 print("========================================")
 
 
-# Flatten training data
-#
-# Shape:
-#     (number_of_windows, 500, 6)
-#
-# becomes:
-#     (number_of_windows * 500, 6)
+X_train_2d = X_train.reshape(-1, len(CHANNELS))
 
-X_train_2d = X_train.reshape(
-    -1,
-    len(CHANNELS)
-)
-
-
-# ------------------------------------------------------------
-# Create scaler
-# ------------------------------------------------------------
 
 scaler = StandardScaler()
 
 
-# ------------------------------------------------------------
-# Fit ONLY on training data
-# ------------------------------------------------------------
-
 scaler.fit(X_train_2d)
 
-
-# ------------------------------------------------------------
-# Function to normalize data
-# ------------------------------------------------------------
 
 def normalize_data(X):
 
     original_shape = X.shape
 
-    X = X.reshape(
-        -1,
-        len(CHANNELS)
-    )
+    X = X.reshape(-1, len(CHANNELS))
 
     X = scaler.transform(X)
 
@@ -412,10 +243,6 @@ def normalize_data(X):
     return X.astype(np.float32)
 
 
-# ------------------------------------------------------------
-# Normalize
-# ------------------------------------------------------------
-
 X_train = normalize_data(X_train)
 
 X_val = normalize_data(X_val)
@@ -423,19 +250,11 @@ X_val = normalize_data(X_val)
 X_test = normalize_data(X_test)
 
 
-# ============================================================
-# 13. SAVE SCALER
-# ============================================================
-
 with open(SCALER_PATH, "wb") as f:
     pickle.dump(scaler, f)
 
 print("Scaler saved to:", SCALER_PATH)
 
-
-# ============================================================
-# 14. PRINT FINAL SHAPES
-# ============================================================
 
 print("\n========================================")
 print("FINAL DATA SHAPES")
@@ -451,161 +270,49 @@ print("X_test:", X_test.shape)
 print("y_test:", y_test.shape)
 
 
-# ============================================================
-# 15. BUILD 1D CNN
-# ============================================================
-
 print("\n========================================")
 print("BUILDING CNN")
 print("========================================")
 
 
-model = models.Sequential([
+model = models.Sequential(
+    [
+        layers.Input(shape=(WINDOW_SIZE, len(CHANNELS))),
+        layers.Conv1D(filters=64, kernel_size=5, activation="relu", padding="same"),
+        layers.BatchNormalization(),
+        layers.MaxPooling1D(pool_size=2),
+        layers.Conv1D(filters=128, kernel_size=5, activation="relu", padding="same"),
+        layers.BatchNormalization(),
+        layers.MaxPooling1D(pool_size=2),
+        layers.Conv1D(filters=128, kernel_size=3, activation="relu", padding="same"),
+        layers.BatchNormalization(),
+        layers.GlobalAveragePooling1D(),
+        layers.Dense(64, activation="relu"),
+        layers.Dropout(0.3),
+        layers.Dense(NUM_CLASSES, activation="softmax"),
+    ]
+)
 
-    # --------------------------------------------------------
-    # Input
-    # --------------------------------------------------------
-    layers.Input(
-        shape=(WINDOW_SIZE, len(CHANNELS))
-    ),
-
-
-    # --------------------------------------------------------
-    # CNN Block 1
-    # --------------------------------------------------------
-
-    layers.Conv1D(
-        filters=64,
-        kernel_size=5,
-        activation="relu",
-        padding="same"
-    ),
-
-    layers.BatchNormalization(),
-
-    layers.MaxPooling1D(
-        pool_size=2
-    ),
-
-
-    # --------------------------------------------------------
-    # CNN Block 2
-    # --------------------------------------------------------
-
-    layers.Conv1D(
-        filters=128,
-        kernel_size=5,
-        activation="relu",
-        padding="same"
-    ),
-
-    layers.BatchNormalization(),
-
-    layers.MaxPooling1D(
-        pool_size=2
-    ),
-
-
-    # --------------------------------------------------------
-    # CNN Block 3
-    # --------------------------------------------------------
-
-    layers.Conv1D(
-        filters=128,
-        kernel_size=3,
-        activation="relu",
-        padding="same"
-    ),
-
-    layers.BatchNormalization(),
-
-
-    # --------------------------------------------------------
-    # Global pooling
-    # --------------------------------------------------------
-
-    layers.GlobalAveragePooling1D(),
-
-
-    # --------------------------------------------------------
-    # Fully connected layer
-    # --------------------------------------------------------
-
-    layers.Dense(
-        64,
-        activation="relu"
-    ),
-
-    layers.Dropout(0.3),
-
-
-    # --------------------------------------------------------
-    # Output
-    # --------------------------------------------------------
-
-    layers.Dense(
-        NUM_CLASSES,
-        activation="softmax"
-    )
-
-])
-
-
-# ============================================================
-# 16. DISPLAY MODEL
-# ============================================================
 
 model.summary()
 
 
-# ============================================================
-# 17. COMPILE MODEL
-# ============================================================
-
 model.compile(
-
-    optimizer=tf.keras.optimizers.Adam(
-        learning_rate=0.001
-    ),
-
+    optimizer=tf.keras.optimizers.Adam(learning_rate=0.001),
     loss="sparse_categorical_crossentropy",
-
-    metrics=["accuracy"]
-
+    metrics=["accuracy"],
 )
 
 
-# ============================================================
-# 18. CALLBACKS
-# ============================================================
-
 early_stopping = EarlyStopping(
-
-    monitor="val_loss",
-
-    patience=10,
-
-    restore_best_weights=True
-
+    monitor="val_loss", patience=10, restore_best_weights=True
 )
 
 
 model_checkpoint = ModelCheckpoint(
-
-    "activity_cnn_best.keras",
-
-    monitor="val_loss",
-
-    save_best_only=True,
-
-    verbose=1
-
+    "activity_cnn_best.keras", monitor="val_loss", save_best_only=True, verbose=1
 )
 
-
-# ============================================================
-# 19. TRAIN MODEL
-# ============================================================
 
 print("\n========================================")
 print("TRAINING")
@@ -613,55 +320,27 @@ print("========================================")
 
 
 history = model.fit(
-
     X_train,
     y_train,
-
-    validation_data=(
-        X_val,
-        y_val
-    ),
-
+    validation_data=(X_val, y_val),
     epochs=50,
-
     batch_size=32,
-
-    callbacks=[
-        early_stopping,
-        model_checkpoint
-    ],
-
-    verbose=1
-
+    callbacks=[early_stopping, model_checkpoint],
+    verbose=1,
 )
 
-
-# ============================================================
-# 20. SAVE FINAL MODEL
-# ============================================================
 
 model.save(MODEL_PATH)
 
 print("\nModel saved to:", MODEL_PATH)
 
 
-# ============================================================
-# 21. TEST MODEL
-# ============================================================
-
 print("\n========================================")
 print("TESTING")
 print("========================================")
 
 
-test_loss, test_accuracy = model.evaluate(
-
-    X_test,
-    y_test,
-
-    verbose=1
-
-)
+test_loss, test_accuracy = model.evaluate(X_test, y_test, verbose=1)
 
 
 print("\nTest Loss:")
@@ -671,118 +350,58 @@ print("\nTest Accuracy:")
 print(test_accuracy)
 
 
-# ============================================================
-# 22. PREDICTIONS
-# ============================================================
+y_probability = model.predict(X_test)
 
-y_probability = model.predict(
-    X_test
-)
-
-y_pred = np.argmax(
-    y_probability,
-    axis=1
-)
+y_pred = np.argmax(y_probability, axis=1)
 
 
-# ============================================================
-# 23. ACCURACY
-# ============================================================
-
-accuracy = accuracy_score(
-    y_test,
-    y_pred
-)
+accuracy = accuracy_score(y_test, y_pred)
 
 print("\n========================================")
 print("FINAL ACCURACY")
 print("========================================")
 
-print(
-    f"Test Accuracy: {accuracy * 100:.2f}%"
-)
+print(f"Test Accuracy: {accuracy * 100:.2f}%")
 
-
-# ============================================================
-# 24. CLASSIFICATION REPORT
-# ============================================================
 
 print("\n========================================")
 print("CLASSIFICATION REPORT")
 print("========================================")
 
-print(
-    classification_report(
-        y_test,
-        y_pred,
-        target_names=CLASS_NAMES,
-        digits=4
-    )
-)
+print(classification_report(y_test, y_pred, target_names=CLASS_NAMES, digits=4))
 
-
-# ============================================================
-# 25. CONFUSION MATRIX
-# ============================================================
 
 print("\n========================================")
 print("CONFUSION MATRIX")
 print("========================================")
 
-cm = confusion_matrix(
-    y_test,
-    y_pred
-)
+cm = confusion_matrix(y_test, y_pred)
 
 print(cm)
 
 
-# ============================================================
-# 26. PLOT CONFUSION MATRIX
-# ============================================================
-
-disp = ConfusionMatrixDisplay(
-
-    confusion_matrix=cm,
-
-    display_labels=CLASS_NAMES
-
-)
+disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=CLASS_NAMES)
 
 disp.plot()
 
-plt.title(
-    "Activity Recognition Confusion Matrix"
-)
+plt.title("Activity Recognition Confusion Matrix")
 
 plt.tight_layout()
 
 plt.show()
 
 
-# ============================================================
-# 27. PLOT TRAINING ACCURACY
-# ============================================================
-
 plt.figure()
 
-plt.plot(
-    history.history["accuracy"],
-    label="Training Accuracy"
-)
+plt.plot(history.history["accuracy"], label="Training Accuracy")
 
-plt.plot(
-    history.history["val_accuracy"],
-    label="Validation Accuracy"
-)
+plt.plot(history.history["val_accuracy"], label="Validation Accuracy")
 
 plt.xlabel("Epoch")
 
 plt.ylabel("Accuracy")
 
-plt.title(
-    "Training and Validation Accuracy"
-)
+plt.title("Training and Validation Accuracy")
 
 plt.legend()
 
@@ -791,29 +410,17 @@ plt.grid()
 plt.show()
 
 
-# ============================================================
-# 28. PLOT TRAINING LOSS
-# ============================================================
-
 plt.figure()
 
-plt.plot(
-    history.history["loss"],
-    label="Training Loss"
-)
+plt.plot(history.history["loss"], label="Training Loss")
 
-plt.plot(
-    history.history["val_loss"],
-    label="Validation Loss"
-)
+plt.plot(history.history["val_loss"], label="Validation Loss")
 
 plt.xlabel("Epoch")
 
 plt.ylabel("Loss")
 
-plt.title(
-    "Training and Validation Loss"
-)
+plt.title("Training and Validation Loss")
 
 plt.legend()
 
@@ -822,18 +429,11 @@ plt.grid()
 plt.show()
 
 
-# ============================================================
-# 29. SHOW SOME PREDICTIONS
-# ============================================================
-
 print("\n========================================")
 print("SAMPLE PREDICTIONS")
 print("========================================")
 
-number_to_show = min(
-    20,
-    len(y_test)
-)
+number_to_show = min(20, len(y_test))
 
 for i in range(number_to_show):
 
@@ -841,9 +441,7 @@ for i in range(number_to_show):
 
     predicted = CLASS_NAMES[y_pred[i]]
 
-    confidence = np.max(
-        y_probability[i]
-    ) * 100
+    confidence = np.max(y_probability[i]) * 100
 
     print(
         f"{i+1:2d}. "
@@ -852,10 +450,6 @@ for i in range(number_to_show):
         f"Confidence: {confidence:.2f}%"
     )
 
-
-# ============================================================
-# 30. FINISHED
-# ============================================================
 
 print("\n========================================")
 print("DONE")

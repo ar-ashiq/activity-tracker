@@ -2,11 +2,11 @@ import pandas as pd
 import os
 import glob
 
-# Folder containing your CSV files with the labels
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-folder_path = os.path.join(project_root, "datasets/ExtraSensory.per_uuid_features_labels")
+folder_path = os.path.join(
+    project_root, "datasets/ExtraSensory.per_uuid_features_labels"
+)
 
-# Phrases to search for in column headings
 phrases = [
     "raw_magnet",
     "watch_acceleration",
@@ -19,7 +19,6 @@ phrases = [
     "discrete:app_state",
     "discrete:ringer",
     "discrete:wifi_",
-
     "WITH_FRIENDS",
     "WITH_CO-WORKERS",
     "PHONE_ON_TABLE",
@@ -63,8 +62,9 @@ phrases = [
     "label:DRINKING__ALCOHOL_",
     "label:BATHING_-_SHOWER",
     "label:DOING_LAUNDRY",
-    "label:CLEANING"
+    "label:CLEANING",
 ]
+
 
 def remove_columns(input_folder=folder_path):
     """Remove unwanted columns from every CSV file in the input folder."""
@@ -76,8 +76,7 @@ def remove_columns(input_folder=folder_path):
         df = pd.read_csv(file)
 
         columns_to_remove = [
-            col for col in df.columns
-            if any(phrase in col for phrase in phrases)
+            col for col in df.columns if any(phrase in col for phrase in phrases)
         ]
         df = df.drop(columns=columns_to_remove)
 
