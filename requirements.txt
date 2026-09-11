@@ -1,5 +1,6 @@
 absl-py==2.3.1
 astunparse==1.6.3
+fastapi==0.115.6
 black==25.11.0
 certifi==2026.7.22
 cfgv==3.4.0
@@ -53,6 +54,7 @@ requests==2.32.5
 rich==15.0.0
 scikit-learn==1.6.1
 scipy==1.13.1
+uvicorn==0.34.0
 six==1.17.0
 tensorboard==2.20.0
 tensorboard-data-server==0.7.2
