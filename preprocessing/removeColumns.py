@@ -2,10 +2,9 @@ import pandas as pd
 import os
 import glob
 
-project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-folder_path = os.path.join(
-    project_root, "datasets/ExtraSensory.per_uuid_features_labels"
-)
+from paths import LABEL_DIR
+
+folder_path = LABEL_DIR
 
 phrases = [
     "raw_magnet",

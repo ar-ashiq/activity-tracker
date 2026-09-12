@@ -2,13 +2,9 @@ import os
 import pandas as pd
 import numpy as np
 
-ACC_DIR = "/Users/ashiqar/chore/ubiquitous/Codes/datasets/acc_outputs"
+from paths import ACC_DIR, GYRO_DIR, LABEL_DIR, SYNCHRONIZED_DIR
 
-GYRO_DIR = "/Users/ashiqar/chore/ubiquitous/Codes/datasets/gyro_outputs"
-
-LABEL_DIR = "/Users/ashiqar/chore/ubiquitous/Codes/datasets/ExtraSensory.per_uuid_features_labels"
-
-OUTPUT_DIR = "/Users/ashiqar/chore/ubiquitous/Codes/datasets/synchronized_outputs"
+OUTPUT_DIR = SYNCHRONIZED_DIR
 
 
 os.makedirs(OUTPUT_DIR, exist_ok=True)

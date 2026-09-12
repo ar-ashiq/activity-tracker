@@ -28,21 +28,13 @@ from pathlib import Path
 #             ...
 # ------------------------------------------------------------
 
-ACC_ROOT = Path(
-    "/Users/huzaifa/Documents/raw_acc/raw_acc"
-)
-
-GYRO_ROOT = Path(
-    "/Users/huzaifa/Documents/raw_gyro/raw_gyro"
-)
+from paths import RAW_ACC_DIR as ACC_ROOT, RAW_GYRO_DIR as GYRO_ROOT, RAW_SYNC_DIR
 
 # ------------------------------------------------------------
 # Output folder
 # ------------------------------------------------------------
 
-OUTPUT_ROOT = Path(
-    "/Users/huzaifa/Documents/sync"
-)
+OUTPUT_ROOT = RAW_SYNC_DIR
 
 # ------------------------------------------------------------
 # Desired output frequency
@@ -936,11 +928,10 @@ def main():
                 #             synchronized_25hz.csv
                 # ------------------------------------------------
 
-                output_file = (
-                    OUTPUT_ROOT
-                    / user_name
-                    / recording_id
-                    / "synchronized_25hz.csv"
+                output_file = OUTPUT_ROOT.joinpath(
+                    user_name,
+                    recording_id,
+                    "synchronized_25hz.csv",
                 )
 
 

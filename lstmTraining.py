@@ -1,6 +1,7 @@
 import os
 import glob
 import pickle
+from pathlib import Path
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -20,19 +21,29 @@ import tensorflow as tf
 from tensorflow.keras import layers, Model
 from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint
 
-# ============================================================
-# PATHS
-# ============================================================
+from paths import (
+    LABEL_DIR,
+    LSTM_BEST_MODEL_PATH,
+    LSTM_METRICS_DIR,
+    LSTM_MODEL_PATH,
+    LSTM_PLOT_DIR,
+    LSTM_SEQUENCE_SCALER_PATH,
+    LSTM_STAT_SCALER_PATH,
+    SYNCHRONIZED_DIR,
+)
 
-DATA_DIR = "/Users/ashiqar/chore/ubiquitous/Codes/datasets/synchronized_outputs"
+DATA_DIR = SYNCHRONIZED_DIR
+MODEL_PATH = LSTM_MODEL_PATH
+SEQUENCE_SCALER_PATH = LSTM_SEQUENCE_SCALER_PATH
+STAT_SCALER_PATH = LSTM_STAT_SCALER_PATH
 
-LABEL_DIR = "/Users/ashiqar/chore/ubiquitous/Codes/datasets/ExtraSensory.per_uuid_features_labels"
-
-MODEL_PATH = "activity_recognition_lstm.keras"
-
-SEQUENCE_SCALER_PATH = "activity_sequence_scaler.pkl"
-
-STAT_SCALER_PATH = "activity_stat_scaler.pkl"
+for output_dir in (
+    LSTM_MODEL_PATH.parent,
+    LSTM_SEQUENCE_SCALER_PATH.parent,
+    LSTM_PLOT_DIR,
+    LSTM_METRICS_DIR,
+):
+    output_dir.mkdir(parents=True, exist_ok=True)
 
 
 # ============================================================
@@ -636,7 +647,7 @@ early_stopping = EarlyStopping(
 
 
 model_checkpoint = ModelCheckpoint(
-    "activity_lstm_best.keras", monitor="val_loss", save_best_only=True, verbose=1
+    LSTM_BEST_MODEL_PATH, monitor="val_loss", save_best_only=True, verbose=1
 )
 
 
@@ -738,7 +749,14 @@ print("\n========================================")
 print("CLASSIFICATION REPORT")
 print("========================================")
 
-print(classification_report(y_test, y_pred, target_names=CLASS_NAMES, digits=4))
+report = classification_report(y_test, y_pred, target_names=CLASS_NAMES, digits=4)
+print(report)
+with open(LSTM_METRICS_DIR.joinpath("classification_report.txt"), "w") as file:
+    file.write(report)
+with open(LSTM_METRICS_DIR.joinpath("metrics.txt"), "w") as file:
+    file.write(f"test_loss={test_loss}\n")
+    file.write(f"test_accuracy={test_accuracy}\n")
+    file.write(f"accuracy={accuracy}\n")
 
 
 # ============================================================
@@ -761,6 +779,8 @@ disp.plot()
 plt.title("Activity Recognition Confusion Matrix")
 
 plt.tight_layout()
+
+plt.savefig(LSTM_PLOT_DIR.joinpath("confusion_matrix.png"))
 
 plt.show()
 
@@ -785,6 +805,8 @@ plt.legend()
 
 plt.grid()
 
+plt.savefig(LSTM_PLOT_DIR.joinpath("accuracy.png"))
+
 plt.show()
 
 
@@ -807,6 +829,8 @@ plt.title("Training and Validation Loss")
 plt.legend()
 
 plt.grid()
+
+plt.savefig(LSTM_PLOT_DIR.joinpath("loss.png"))
 
 plt.show()
 

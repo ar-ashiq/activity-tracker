@@ -1,6 +1,7 @@
 import os
 import glob
 import pickle
+from pathlib import Path
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -17,10 +18,21 @@ import tensorflow as tf
 from tensorflow.keras import layers, models
 from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint
 
-DATA_DIR = "/Users/ashiqar/chore/ubiquitous/Codes/datasets/synchronized_outputs"
+from paths import (
+    CNN_BEST_MODEL_PATH,
+    CNN_METRICS_DIR,
+    CNN_MODEL_PATH,
+    CNN_PLOT_DIR,
+    CNN_SCALER_PATH,
+    SYNCHRONIZED_DIR,
+)
 
-MODEL_PATH = "activity_recognition_cnn.keras"
-SCALER_PATH = "activity_scaler.pkl"
+DATA_DIR = SYNCHRONIZED_DIR
+MODEL_PATH = CNN_MODEL_PATH
+SCALER_PATH = CNN_SCALER_PATH
+
+for output_dir in (CNN_MODEL_PATH.parent, CNN_SCALER_PATH.parent, CNN_PLOT_DIR, CNN_METRICS_DIR):
+    output_dir.mkdir(parents=True, exist_ok=True)
 
 
 WINDOW_SIZE = 100
@@ -309,7 +321,7 @@ early_stopping = EarlyStopping(
 
 
 model_checkpoint = ModelCheckpoint(
-    "activity_cnn_best.keras", monitor="val_loss", save_best_only=True, verbose=1
+    CNN_BEST_MODEL_PATH, monitor="val_loss", save_best_only=True, verbose=1
 )
 
 
@@ -367,7 +379,14 @@ print("\n========================================")
 print("CLASSIFICATION REPORT")
 print("========================================")
 
-print(classification_report(y_test, y_pred, target_names=CLASS_NAMES, digits=4))
+report = classification_report(y_test, y_pred, target_names=CLASS_NAMES, digits=4)
+print(report)
+with open(CNN_METRICS_DIR.joinpath("classification_report.txt"), "w") as file:
+    file.write(report)
+with open(CNN_METRICS_DIR.joinpath("metrics.txt"), "w") as file:
+    file.write(f"test_loss={test_loss}\n")
+    file.write(f"test_accuracy={test_accuracy}\n")
+    file.write(f"accuracy={accuracy}\n")
 
 
 print("\n========================================")
@@ -386,6 +405,8 @@ disp.plot()
 plt.title("Activity Recognition Confusion Matrix")
 
 plt.tight_layout()
+
+plt.savefig(CNN_PLOT_DIR.joinpath("confusion_matrix.png"))
 
 plt.show()
 
@@ -406,6 +427,8 @@ plt.legend()
 
 plt.grid()
 
+plt.savefig(CNN_PLOT_DIR.joinpath("accuracy.png"))
+
 plt.show()
 
 
@@ -424,6 +447,8 @@ plt.title("Training and Validation Loss")
 plt.legend()
 
 plt.grid()
+
+plt.savefig(CNN_PLOT_DIR.joinpath("loss.png"))
 
 plt.show()
 

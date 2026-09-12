@@ -1,18 +1,20 @@
 import json
 import time
-from pathlib import Path
+import argparse
 
 import numpy as np
 import pandas as pd
 import tensorflow as tf
 
+from paths import CNN_BEST_MODEL_PATH, CNN_SCALER_PATH, TESTING_USER_DIR
 
-ROOT_DIR = Path(__file__).resolve().parent
-TESTING_DIR = ROOT_DIR / "datasets" / "testing" / "0A986513-7828-4D53-AA1F-E02D6DF9561B"
-MODEL_PATH = ROOT_DIR / "activity_cnn_best.keras"
-SCALER_PATH = ROOT_DIR / "activity_scaler.pkl"
-OUTPUT_FILE = ROOT_DIR / "datasets" / "testing" / "0A986513-7828-4D53-AA1F-E02D6DF9561B" / "testing_predictions.json"
-CONSOLIDATED_OUTPUT_FILE = ROOT_DIR / "datasets" / "testing" / "0A986513-7828-4D53-AA1F-E02D6DF9561B" / "testing_predictions_consolidated.json"
+TESTING_DIR = TESTING_USER_DIR
+MODEL_PATH = CNN_BEST_MODEL_PATH
+SCALER_PATH = CNN_SCALER_PATH
+OUTPUT_FILE = TESTING_DIR.joinpath("testing_predictions.json")
+CONSOLIDATED_OUTPUT_FILE = TESTING_DIR.joinpath(
+    "testing_predictions_consolidated.json"
+)
 
 WINDOW_SIZE = 100
 MAX_ACTIVITY_GAP_SECONDS = 60.0
@@ -34,11 +36,10 @@ CHANNELS = [
 ]
 
 
-def load_scaler():
+def load_scaler(path):
     import pickle
-
-    with open(SCALER_PATH, "rb") as file:
-        return pickle.load(file)
+    with open(path, "rb") as f:
+        return pickle.load(f)
 
 
 def timestamp_id_from_filename(filename):
@@ -232,7 +233,7 @@ def consolidate_predictions(predictions):
     return consolidated
 
 
-def predict_testing_data():
+def predict_testing_data(model_type):
     start_time = time.perf_counter()
 
     print(f"Testing folder: {TESTING_DIR}", flush=True)
@@ -246,14 +247,13 @@ def predict_testing_data():
     if not SCALER_PATH.exists():
         raise FileNotFoundError(f"Scaler not found: {SCALER_PATH}")
 
-    model = tf.keras.models.load_model(MODEL_PATH)
-    scaler = load_scaler()
+    model, scaler = load_model(model_type)
     predictions = []
     print(f"Model and scaler loaded ({time.perf_counter() - start_time:.1f}s)", flush=True)
 
     user_id = TESTING_DIR.name
-    acc_dir = TESTING_DIR / "acc"
-    gyro_dir = TESTING_DIR / "gyro"
+    acc_dir = TESTING_DIR.joinpath("acc")
+    gyro_dir = TESTING_DIR.joinpath("gyro")
 
     if not acc_dir.is_dir() or not gyro_dir.is_dir():
         raise FileNotFoundError(f"Expected acc and gyro directories under {TESTING_DIR}")
@@ -337,6 +337,39 @@ def predict_testing_data():
     print(f"Total time: {time.perf_counter() - start_time:.1f}s", flush=True)
     return predictions
 
+def load_model(model_type: str):
+    if model_type == "cnn":
+        from paths import CNN_BEST_MODEL_PATH, CNN_SCALER_PATH
+        model = tf.keras.models.load_model(CNN_BEST_MODEL_PATH)
+        scaler = load_scaler(CNN_SCALER_PATH)
+        return model, scaler
+
+    elif model_type == "lstm":
+        from paths import LSTM_BEST_MODEL_PATH, LSTM_SEQUENCE_SCALER_PATH
+        model = tf.keras.models.load_model(LSTM_BEST_MODEL_PATH)
+        scaler = load_scaler(LSTM_SEQUENCE_SCALER_PATH)
+        return model, scaler
+
+    elif model_type == "raw_lstm":
+        from paths import RAW_LSTM_BEST_MODEL_PATH, RAW_LSTM_SCALER_PATH
+        model = tf.keras.models.load_model(RAW_LSTM_BEST_MODEL_PATH)
+        scaler = load_scaler(RAW_LSTM_SCALER_PATH)
+        return model, scaler
+
+    else:
+        raise ValueError("Unknown model type")
+
 
 if __name__ == "__main__":
-    predict_testing_data()
+    parser = argparse.ArgumentParser()
+    # cannot use lstm right now because of the way the data is preprocessed, so only cnn is available for now
+    parser.add_argument(
+        "--model",
+        type=str,
+        default="cnn",
+        choices=["cnn", "lstm", "raw_lstm"]
+    )
+
+    args = parser.parse_args()
+
+    predict_testing_data(args.model)
