@@ -52,3 +52,25 @@ LSTM_MODEL_PATH = LSTM_MODEL_DIR.joinpath("activity_recognition_lstm.keras")
 LSTM_BEST_MODEL_PATH = LSTM_MODEL_DIR.joinpath("activity_lstm_best.keras")
 LSTM_SEQUENCE_SCALER_PATH = LSTM_SCALER_DIR.joinpath("activity_sequence_scaler.pkl")
 LSTM_STAT_SCALER_PATH = LSTM_SCALER_DIR.joinpath("activity_stat_scaler.pkl")
+
+# ============================================================
+# RAW-INPUT LSTM OUTPUTS
+# ============================================================
+
+RAW_LSTM_OUTPUT_DIR = TRAINING_OUTPUTS_DIR.joinpath("lstm_raw")
+RAW_LSTM_MODEL_DIR = RAW_LSTM_OUTPUT_DIR.joinpath("models")
+RAW_LSTM_SCALER_DIR = RAW_LSTM_OUTPUT_DIR.joinpath("scalers")
+RAW_LSTM_PLOT_DIR = RAW_LSTM_OUTPUT_DIR.joinpath("plots")
+RAW_LSTM_METRICS_DIR = RAW_LSTM_OUTPUT_DIR.joinpath("metrics")
+
+RAW_LSTM_MODEL_PATH = RAW_LSTM_MODEL_DIR.joinpath(
+    "activity_recognition_lstm_raw.keras"
+)
+
+RAW_LSTM_BEST_MODEL_PATH = RAW_LSTM_MODEL_DIR.joinpath(
+    "activity_lstm_raw_best.keras"
+)
+
+RAW_LSTM_SCALER_PATH = RAW_LSTM_SCALER_DIR.joinpath(
+    "activity_lstm_raw_scaler.pkl"
+)
