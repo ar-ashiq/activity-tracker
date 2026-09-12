@@ -72,7 +72,7 @@ for i, chunk_file in enumerate(
 
 
 # ============================================================
-# RAW CLASS WEIGHTS
+# RAW CLASS WEIGHT
 # ============================================================
 
 total = counts.sum()
