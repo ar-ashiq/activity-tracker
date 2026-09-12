@@ -114,7 +114,7 @@ app = FastAPI(
 engine = PredictionQueryEngine(PREDICTIONS_FILE)
 
 
-@app.get("/health", response_model=HealthResponse)
+@app.get("/health", response_model=HealthResponse, tags=["System"])
 def health() -> HealthResponse:
     engine.reload_if_needed()
     return HealthResponse(
@@ -124,12 +124,12 @@ def health() -> HealthResponse:
     )
 
 
-@app.get("/activities", response_model=List[str])
+@app.get("/activities", response_model=List[str], tags=["Predictions"])
 def activities():
     return sorted({item.activity for item in engine.all()})
 
 
-@app.get("/predictions", response_model=List[ActivityInterval])
+@app.get("/predictions", response_model=List[ActivityInterval], tags=["Predictions"])
 def predictions(
     activity: Optional[str] = Query(default=None),
     start_timestamp: Optional[float] = Query(default=None, ge=0),
@@ -148,14 +148,14 @@ def predictions(
     return engine.query(activity, start_timestamp, end_timestamp)
 
 
-@app.get("/predictions/at", response_model=List[ActivityInterval])
+@app.get("/predictions/at", response_model=List[ActivityInterval], tags=["Predictions"])
 def predictions_at(
     timestamp: float = Query(..., ge=0),
 ):
     return engine.activity_at(timestamp)
 
 
-@app.post("/query")
+@app.post("/query", tags=["Question Engine"])
 def query_prediction(request: QuestionRequest):
     if not request.question.strip():
         raise HTTPException(status_code=400, detail="question must not be empty")
