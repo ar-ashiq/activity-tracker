@@ -3,7 +3,7 @@
 # Directory where this script is located
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
-cd "$SCRIPT_DIR/ExtraSensory.per_uuid_features_labels" || exit 1
+cd "$SCRIPT_DIR/source/labels" || exit 1
 
 found=false
 

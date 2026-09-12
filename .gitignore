@@ -1,4 +1,8 @@
 venv
-datasets/*
+datasets/raw/
+datasets/processed/
+datasets/testing/
+datasets/source/labels/
+trainingOutputs/
 !datasets/unzip_gz.sh
 .DS_Store

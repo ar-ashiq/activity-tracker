@@ -6,13 +6,15 @@ import numpy as np
 import pandas as pd
 import tensorflow as tf
 
+from paths import CNN_BEST_MODEL_PATH, CNN_SCALER_PATH, TESTING_USER_DIR
 
-ROOT_DIR = Path(__file__).resolve().parent
-TESTING_DIR = ROOT_DIR / "datasets" / "testing" / "0A986513-7828-4D53-AA1F-E02D6DF9561B"
-MODEL_PATH = ROOT_DIR / "activity_cnn_best.keras"
-SCALER_PATH = ROOT_DIR / "activity_scaler.pkl"
-OUTPUT_FILE = ROOT_DIR / "datasets" / "testing" / "0A986513-7828-4D53-AA1F-E02D6DF9561B" / "testing_predictions.json"
-CONSOLIDATED_OUTPUT_FILE = ROOT_DIR / "datasets" / "testing" / "0A986513-7828-4D53-AA1F-E02D6DF9561B" / "testing_predictions_consolidated.json"
+TESTING_DIR = TESTING_USER_DIR
+MODEL_PATH = CNN_BEST_MODEL_PATH
+SCALER_PATH = CNN_SCALER_PATH
+OUTPUT_FILE = TESTING_DIR.joinpath("testing_predictions.json")
+CONSOLIDATED_OUTPUT_FILE = TESTING_DIR.joinpath(
+    "testing_predictions_consolidated.json"
+)
 
 WINDOW_SIZE = 100
 MAX_ACTIVITY_GAP_SECONDS = 60.0
@@ -252,8 +254,8 @@ def predict_testing_data():
     print(f"Model and scaler loaded ({time.perf_counter() - start_time:.1f}s)", flush=True)
 
     user_id = TESTING_DIR.name
-    acc_dir = TESTING_DIR / "acc"
-    gyro_dir = TESTING_DIR / "gyro"
+    acc_dir = TESTING_DIR.joinpath("acc")
+    gyro_dir = TESTING_DIR.joinpath("gyro")
 
     if not acc_dir.is_dir() or not gyro_dir.is_dir():
         raise FileNotFoundError(f"Expected acc and gyro directories under {TESTING_DIR}")

@@ -2,8 +2,7 @@ import os
 import pandas as pd
 import numpy as np
 
-ACC_DIR = "/Users/ashiqar/chore/ubiquitous/Codes/datasets/acc_outputs"
-GYRO_DIR = "/Users/ashiqar/chore/ubiquitous/Codes/datasets/gyro_outputs"
+from paths import ACC_DIR, GYRO_DIR
 
 for user_id in sorted(os.listdir(ACC_DIR)):
 

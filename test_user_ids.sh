@@ -1,21 +1,23 @@
 #!/bin/bash
 
-ACC_DIR="/Users/ashiqar/chore/ubiquitous/Codes/datasets/acc_outputs"
-DIR1="/Users/ashiqar/chore/ubiquitous/Codes/datasets/gyro_outputs"
-DIR2="/Users/ashiqar/chore/ubiquitous/Codes/datasets/ExtraSensory.per_uuid_features_labels"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+ACC_DIR="$SCRIPT_DIR/datasets/processed/acc"
+DIR1="$SCRIPT_DIR/datasets/processed/gyro"
+DIR2="$SCRIPT_DIR/datasets/source/labels"
 
 for folder in "$ACC_DIR"/*/; do
 
     name=$(basename "$folder")
 
-    # Check in gyro_outputs
+    # Check in processed gyro data
     if [ ! -d "$DIR1/$name" ]; then
-        echo "$name -> Missing in gyro_outputs"
+        echo "$name -> Missing in processed/gyro"
     fi
 
-    # Check as CSV file in ExtraSensory.per_uuid_features_labels
+    # Check as CSV file in source labels
     if [ ! -f "$DIR2/$name.features_labels.csv" ]; then
-        echo "$name -> Missing in ExtraSensory.per_uuid_features_labels"
+        echo "$name -> Missing in source/labels"
     fi
 
 done

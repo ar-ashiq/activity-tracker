@@ -7,16 +7,10 @@ from fastapi import FastAPI, HTTPException, Query
 from pydantic import BaseModel
 
 from .query_engine import answer, build_timeline
+from paths import TESTING_CONSOLIDATED_FILE
 
 
-ROOT_DIR = Path(__file__).resolve().parent.parent
-PREDICTIONS_FILE = (
-    ROOT_DIR
-    / "datasets"
-    / "testing"
-    / "0A986513-7828-4D53-AA1F-E02D6DF9561B"
-    / "testing_predictions_consolidated.json"
-)
+PREDICTIONS_FILE = TESTING_CONSOLIDATED_FILE
 
 
 class ActivityInterval(BaseModel):
