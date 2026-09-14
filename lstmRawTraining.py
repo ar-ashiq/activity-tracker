@@ -22,6 +22,7 @@ from tensorflow.keras import layers, Model
 from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint
 
 from paths import (
+    RAW_SYNC_DIR,
     SYNCHRONIZED_DIR,
     RAW_LSTM_BEST_MODEL_PATH,
     RAW_LSTM_METRICS_DIR,
@@ -30,12 +31,23 @@ from paths import (
     RAW_LSTM_SCALER_PATH,
 )
 
+import json
+
+SPLIT_PATH = "split.json"  # path to your JSON file
+
+with open(SPLIT_PATH, "r") as f:
+    split = json.load(f)
+
+train_users = split["train"]
+val_users = split["validation"]
+test_users = split["test"]
+
 
 # ============================================================
 # PATHS
 # ============================================================
 
-DATA_DIR = SYNCHRONIZED_DIR
+DATA_DIR = RAW_SYNC_DIR
 
 MODEL_PATH = RAW_LSTM_MODEL_PATH
 BEST_MODEL_PATH = RAW_LSTM_BEST_MODEL_PATH
@@ -65,6 +77,9 @@ CLASS_NAMES = [
     "Walking",
     "Running",
     "Sitting",
+    "Bicycling",
+    "Lying",
+    "Standing",
 ]
 
 LABEL_MAP = {
@@ -117,20 +132,13 @@ if len(users) != 15:
     print("\nWARNING:")
     print("Expected 15 users, but found", len(users))
 
+print("\n========================================")
+print("USING FIXED USER SPLIT")
+print("========================================")
 
-# ============================================================
-# USER SPLIT
-# ============================================================
-
-rng = np.random.default_rng(42)
-
-users = np.array(users)
-
-rng.shuffle(users)
-
-train_users = users[:10]
-val_users = users[10:12]
-test_users = users[12:15]
+print("Train:", len(train_users))
+print("Val:", len(val_users))
+print("Test:", len(test_users))
 
 
 print("\n========================================")
@@ -164,7 +172,8 @@ def load_user_data(user_list):
         user_dir = os.path.join(DATA_DIR, user)
 
         csv_files = glob.glob(
-            os.path.join(user_dir, "*.csv")
+            os.path.join(user_dir, "**", "synchronized_25hz.csv"),
+            recursive=True
         )
 
         print(
