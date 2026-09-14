@@ -1,6 +1,10 @@
 import os
+import gc
 import glob
 import pickle
+import json
+import math
+import time
 
 import numpy as np
 import pandas as pd
@@ -22,6 +26,7 @@ from tensorflow.keras import layers, Model
 from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint
 
 from paths import (
+    RAW_SYNC_DIR,
     SYNCHRONIZED_DIR,
     RAW_LSTM_BEST_MODEL_PATH,
     RAW_LSTM_METRICS_DIR,
@@ -32,10 +37,53 @@ from paths import (
 
 
 # ============================================================
+# OPTIONAL: GPU CONFIGURATION
+# ============================================================
+
+print("\n========================================")
+print("TENSORFLOW DEVICES")
+print("========================================")
+
+print("TensorFlow version:", tf.__version__)
+print("Physical GPUs:", tf.config.list_physical_devices("GPU"))
+print("Physical CPUs:", tf.config.list_physical_devices("CPU"))
+
+gpus = tf.config.list_physical_devices("GPU")
+
+if gpus:
+    try:
+        for gpu in gpus:
+            tf.config.experimental.set_memory_growth(gpu, True)
+
+        print("GPU memory growth enabled.")
+
+    except RuntimeError as e:
+        print("Could not enable GPU memory growth:", e)
+
+else:
+    print("WARNING: No TensorFlow GPU detected.")
+    print("Training will use CPU.")
+
+
+# ============================================================
+# SPLIT
+# ============================================================
+
+SPLIT_PATH = "split.json"
+
+with open(SPLIT_PATH, "r") as f:
+    split = json.load(f)
+
+train_users = split["train"]
+val_users = split["validation"]
+test_users = split["test"]
+
+
+# ============================================================
 # PATHS
 # ============================================================
 
-DATA_DIR = SYNCHRONIZED_DIR
+DATA_DIR = RAW_SYNC_DIR
 
 MODEL_PATH = RAW_LSTM_MODEL_PATH
 BEST_MODEL_PATH = RAW_LSTM_BEST_MODEL_PATH
@@ -43,8 +91,10 @@ SCALER_PATH = RAW_LSTM_SCALER_PATH
 
 MODEL_DIR = MODEL_PATH.parent
 SCALER_DIR = SCALER_PATH.parent
+
 PLOT_DIR = RAW_LSTM_PLOT_DIR
 METRICS_DIR = RAW_LSTM_METRICS_DIR
+
 
 for output_dir in (
     MODEL_DIR,
@@ -65,12 +115,18 @@ CLASS_NAMES = [
     "Walking",
     "Running",
     "Sitting",
+    "Bicycling",
+    "Lying",
+    "Standing",
 ]
 
 LABEL_MAP = {
     "Walking": 0,
     "Running": 1,
     "Sitting": 2,
+    "Bicycling": 3,
+    "Lying": 4,
+    "Standing": 5,
 }
 
 NUM_CLASSES = len(CLASS_NAMES)
@@ -81,12 +137,12 @@ NUM_CLASSES = len(CLASS_NAMES)
 # ============================================================
 
 CHANNELS = [
-    "acc_x",
-    "acc_y",
-    "acc_z",
-    "gyro_x",
-    "gyro_y",
-    "gyro_z",
+    "ax",
+    "ay",
+    "az",
+    "gx",
+    "gy",
+    "gz",
     "acc_magnitude",
     "gyro_magnitude",
     "acc_magnitude_change",
@@ -94,6 +150,34 @@ CHANNELS = [
 ]
 
 NUM_CHANNELS = len(CHANNELS)
+
+READ_COLUMNS = CHANNELS + ["label"]
+
+DTYPE_MAP = {
+    col: "float32"
+    for col in CHANNELS
+}
+
+CHUNK_SIZE = 200_000
+
+
+# ============================================================
+# CACHE / MEMMAP PATHS
+# ============================================================
+
+CACHE_DIR = MODEL_DIR / "raw_lstm_cache"
+CACHE_DIR.mkdir(parents=True, exist_ok=True)
+
+TRAIN_X_PATH = CACHE_DIR / "X_train.dat"
+TRAIN_Y_PATH = CACHE_DIR / "y_train.dat"
+
+VAL_X_PATH = CACHE_DIR / "X_val.dat"
+VAL_Y_PATH = CACHE_DIR / "y_val.dat"
+
+TEST_X_PATH = CACHE_DIR / "X_test.dat"
+TEST_Y_PATH = CACHE_DIR / "y_test.dat"
+
+CACHE_INFO_PATH = CACHE_DIR / "cache_info.json"
 
 
 # ============================================================
@@ -108,6 +192,10 @@ users = sorted(
     ]
 )
 
+print("\n========================================")
+print("USERS")
+print("========================================")
+
 print("Users found:", len(users))
 
 for user in users:
@@ -118,19 +206,13 @@ if len(users) != 15:
     print("Expected 15 users, but found", len(users))
 
 
-# ============================================================
-# USER SPLIT
-# ============================================================
+print("\n========================================")
+print("USING FIXED USER SPLIT")
+print("========================================")
 
-rng = np.random.default_rng(42)
-
-users = np.array(users)
-
-rng.shuffle(users)
-
-train_users = users[:10]
-val_users = users[10:12]
-test_users = users[12:15]
+print("Train:", len(train_users))
+print("Val:", len(val_users))
+print("Test:", len(test_users))
 
 
 print("\n========================================")
@@ -151,178 +233,781 @@ for user in test_users:
 
 
 # ============================================================
-# LOAD DATA
+# FIND CSV FILES
 # ============================================================
 
-def load_user_data(user_list):
+def get_user_csv_files(user_list):
 
-    X = []
-    y = []
+    all_files = []
 
     for user in user_list:
 
         user_dir = os.path.join(DATA_DIR, user)
 
         csv_files = glob.glob(
-            os.path.join(user_dir, "*.csv")
+            os.path.join(
+                user_dir,
+                "**",
+                "synchronized_25hz.csv"
+            ),
+            recursive=True
         )
 
         print(
-            f"\nUser {user}: "
-            f"{len(csv_files)} CSV files found"
+            f"User {user}: {len(csv_files)} CSV files found"
         )
 
-        for file_path in csv_files:
+        all_files.extend(csv_files)
 
-            try:
-                data = pd.read_csv(file_path)
+    return all_files
 
-            except Exception as e:
-                print("Could not read:", file_path)
-                print("Error:", e)
-                continue
 
-            # ------------------------------------------------
-            # CHECK REQUIRED FEATURES
-            # ------------------------------------------------
+# ============================================================
+# GET LABEL FROM CSV
+# ============================================================
 
-            missing_columns = [
-                col
-                for col in CHANNELS
-                if col not in data.columns
-            ]
+def get_file_label(file_path):
 
-            if missing_columns:
-                print(
-                    "Missing sequence columns:",
-                    missing_columns,
+    try:
+
+        header_df = pd.read_csv(
+            file_path,
+            usecols=["label"],
+            nrows=1,
+        )
+
+        if "label" not in header_df.columns:
+            return None
+
+        label_name = str(
+            header_df["label"].iloc[0]
+        )
+
+        if label_name not in LABEL_MAP:
+            return None
+
+        return LABEL_MAP[label_name]
+
+    except Exception as e:
+
+        print(
+            "Could not read label:",
+            file_path
+        )
+
+        print("Error:", e)
+
+        return None
+
+
+# ============================================================
+# PROCESS ONE CHUNK
+# ============================================================
+
+def process_chunk(chunk):
+
+    sensor_data = chunk[CHANNELS]
+
+    # Convert malformed values to NaN
+    for col in CHANNELS:
+
+        if sensor_data[col].dtype != np.float32:
+
+            sensor_data[col] = pd.to_numeric(
+                sensor_data[col],
+                errors="coerce"
+            )
+
+    sensor_data = sensor_data.dropna()
+
+    values = sensor_data.to_numpy(
+        dtype=np.float32
+    )
+
+    del sensor_data
+
+    return values
+
+
+# ============================================================
+# COUNT WINDOWS IN ONE FILE
+# ============================================================
+
+def count_windows_in_file(file_path):
+
+    total_rows = 0
+
+    try:
+
+        for chunk in pd.read_csv(
+            file_path,
+            usecols=CHANNELS,
+            dtype=DTYPE_MAP,
+            chunksize=CHUNK_SIZE,
+        ):
+
+            values = process_chunk(chunk)
+
+            total_rows += len(values)
+
+            del values
+            del chunk
+
+        return total_rows // WINDOW_SIZE
+
+    except Exception as e:
+
+        print(
+            "Could not count windows:",
+            file_path
+        )
+
+        print("Error:", e)
+
+        return 0
+
+
+# ============================================================
+# FIRST PASS
+#
+# 1. Fit scaler using TRAINING DATA ONLY
+# 2. Count windows for train/val/test
+# ============================================================
+
+def first_pass(
+    train_files,
+    val_files,
+    test_files,
+):
+
+    print("\n========================================")
+    print("FIRST PASS")
+    print("========================================")
+
+    print(
+        "This pass fits the scaler and counts windows."
+    )
+
+    scaler = StandardScaler()
+
+    train_window_count = 0
+    val_window_count = 0
+    test_window_count = 0
+
+    # --------------------------------------------------------
+    # TRAIN
+    # --------------------------------------------------------
+
+    print("\nProcessing TRAIN files...")
+
+    for file_index, file_path in enumerate(train_files):
+
+        label = get_file_label(file_path)
+
+        if label is None:
+            continue
+
+        try:
+
+            file_windows = 0
+
+            for chunk in pd.read_csv(
+                file_path,
+                usecols=CHANNELS,
+                dtype=DTYPE_MAP,
+                chunksize=CHUNK_SIZE,
+            ):
+
+                values = process_chunk(chunk)
+
+                # ------------------------------------------------
+                # FIT SCALER
+                # ------------------------------------------------
+
+                if len(values) > 0:
+
+                    scaler.partial_fit(values)
+
+                # ------------------------------------------------
+                # COUNT WINDOWS
+                # ------------------------------------------------
+
+                file_windows += (
+                    len(values) // WINDOW_SIZE
                 )
-                continue
 
-            if "label" not in data.columns:
-                continue
+                del values
+                del chunk
 
-            # ------------------------------------------------
-            # GET LABEL
-            # ------------------------------------------------
+            train_window_count += file_windows
 
-            label_name = str(
-                data["label"].iloc[0]
+        except Exception as e:
+
+            print(
+                "\nError processing:",
+                file_path
             )
 
-            if label_name not in LABEL_MAP:
-                continue
+            print("Error:", e)
 
-            label = LABEL_MAP[label_name]
+        if (file_index + 1) % 100 == 0:
 
-            # ------------------------------------------------
-            # SENSOR DATA
-            # ------------------------------------------------
-
-            sensor_data = data[CHANNELS].copy()
-
-            sensor_data = sensor_data.apply(
-                pd.to_numeric,
-                errors="coerce",
+            print(
+                f"Train files processed: "
+                f"{file_index + 1}/{len(train_files)} "
+                f"| Windows: {train_window_count:,}"
             )
 
-            sensor_data = sensor_data.dropna()
+        if (file_index + 1) % 25 == 0:
+            gc.collect()
 
-            sensor_values = sensor_data.values.astype(
-                np.float32
+    # --------------------------------------------------------
+    # VALIDATION
+    # --------------------------------------------------------
+
+    print("\nProcessing VALIDATION files...")
+
+    for file_index, file_path in enumerate(val_files):
+
+        label = get_file_label(file_path)
+
+        if label is None:
+            continue
+
+        val_window_count += count_windows_in_file(
+            file_path
+        )
+
+        if (file_index + 1) % 100 == 0:
+
+            print(
+                f"Validation files processed: "
+                f"{file_index + 1}/{len(val_files)} "
+                f"| Windows: {val_window_count:,}"
             )
 
-            # ------------------------------------------------
-            # CREATE 100-SAMPLE WINDOWS
-            # ------------------------------------------------
+    # --------------------------------------------------------
+    # TEST
+    # --------------------------------------------------------
 
-            number_of_windows = (
-                len(sensor_values) // WINDOW_SIZE
+    print("\nProcessing TEST files...")
+
+    for file_index, file_path in enumerate(test_files):
+
+        label = get_file_label(file_path)
+
+        if label is None:
+            continue
+
+        test_window_count += count_windows_in_file(
+            file_path
+        )
+
+        if (file_index + 1) % 100 == 0:
+
+            print(
+                f"Test files processed: "
+                f"{file_index + 1}/{len(test_files)} "
+                f"| Windows: {test_window_count:,}"
             )
 
-            if number_of_windows == 0:
-                continue
+    # --------------------------------------------------------
+    # SAVE SCALER
+    # --------------------------------------------------------
 
-            for window_id in range(number_of_windows):
+    with open(
+        SCALER_PATH,
+        "wb"
+    ) as file:
 
-                start = (
-                    window_id * WINDOW_SIZE
-                )
+        pickle.dump(
+            scaler,
+            file
+        )
 
-                end = start + WINDOW_SIZE
+    print(
+        "\nScaler saved to:",
+        SCALER_PATH
+    )
 
-                window = sensor_values[
-                    start:end
-                ]
+    print("\n========================================")
+    print("WINDOW COUNTS")
+    print("========================================")
 
-                if len(window) != WINDOW_SIZE:
+    print(
+        "Training windows:",
+        f"{train_window_count:,}"
+    )
+
+    print(
+        "Validation windows:",
+        f"{val_window_count:,}"
+    )
+
+    print(
+        "Test windows:",
+        f"{test_window_count:,}"
+    )
+
+    return (
+        scaler,
+        train_window_count,
+        val_window_count,
+        test_window_count,
+    )
+
+
+# ============================================================
+# CREATE MEMMAP
+# ============================================================
+
+def create_memmaps(
+    train_count,
+    val_count,
+    test_count,
+):
+
+    print("\n========================================")
+    print("CREATING DISK-BACKED DATASETS")
+    print("========================================")
+
+    X_train = np.memmap(
+        TRAIN_X_PATH,
+        dtype=np.float32,
+        mode="w+",
+        shape=(
+            train_count,
+            WINDOW_SIZE,
+            NUM_CHANNELS,
+        ),
+    )
+
+    y_train = np.memmap(
+        TRAIN_Y_PATH,
+        dtype=np.int32,
+        mode="w+",
+        shape=(train_count,),
+    )
+
+    X_val = np.memmap(
+        VAL_X_PATH,
+        dtype=np.float32,
+        mode="w+",
+        shape=(
+            val_count,
+            WINDOW_SIZE,
+            NUM_CHANNELS,
+        ),
+    )
+
+    y_val = np.memmap(
+        VAL_Y_PATH,
+        dtype=np.int32,
+        mode="w+",
+        shape=(val_count,),
+    )
+
+    X_test = np.memmap(
+        TEST_X_PATH,
+        dtype=np.float32,
+        mode="w+",
+        shape=(
+            test_count,
+            WINDOW_SIZE,
+            NUM_CHANNELS,
+        ),
+    )
+
+    y_test = np.memmap(
+        TEST_Y_PATH,
+        dtype=np.int32,
+        mode="w+",
+        shape=(test_count,),
+    )
+
+    return (
+        X_train,
+        y_train,
+        X_val,
+        y_val,
+        X_test,
+        y_test,
+    )
+
+
+# ============================================================
+# SECOND PASS
+#
+# Read CSVs again, normalize, create windows,
+# directly write them to disk.
+# ============================================================
+
+def fill_memmap(
+    files,
+    scaler,
+    X_memmap,
+    y_memmap,
+    dataset_name,
+):
+
+    print("\n========================================")
+    print(f"WRITING {dataset_name.upper()} DATA")
+    print("========================================")
+
+    write_index = 0
+
+    total_files = len(files)
+
+    for file_index, file_path in enumerate(files):
+
+        label = get_file_label(file_path)
+
+        if label is None:
+            continue
+
+        try:
+
+            for chunk in pd.read_csv(
+                file_path,
+                usecols=CHANNELS,
+                dtype=DTYPE_MAP,
+                chunksize=CHUNK_SIZE,
+            ):
+
+                values = process_chunk(chunk)
+
+                if len(values) == 0:
+                    del values
+                    del chunk
                     continue
 
-                X.append(window)
-                y.append(label)
+                # ------------------------------------------------
+                # Normalize
+                # ------------------------------------------------
 
-    X = np.array(
-        X,
-        dtype=np.float32,
+                values = scaler.transform(
+                    values
+                ).astype(
+                    np.float32,
+                    copy=False
+                )
+
+                # ------------------------------------------------
+                # Create complete windows
+                # ------------------------------------------------
+
+                number_of_windows = (
+                    len(values) // WINDOW_SIZE
+                )
+
+                usable_length = (
+                    number_of_windows
+                    * WINDOW_SIZE
+                )
+
+                if number_of_windows > 0:
+
+                    windows = values[
+                        :usable_length
+                    ].reshape(
+                        number_of_windows,
+                        WINDOW_SIZE,
+                        NUM_CHANNELS,
+                    )
+
+                    end_index = (
+                        write_index
+                        + number_of_windows
+                    )
+
+                    X_memmap[
+                        write_index:end_index
+                    ] = windows
+
+                    y_memmap[
+                        write_index:end_index
+                    ] = label
+
+                    write_index = end_index
+
+                    del windows
+
+                del values
+                del chunk
+
+            if (file_index + 1) % 100 == 0:
+
+                print(
+                    f"{dataset_name}: "
+                    f"{file_index + 1}/{total_files} files "
+                    f"| {write_index:,} windows"
+                )
+
+            if (file_index + 1) % 25 == 0:
+                gc.collect()
+
+        except Exception as e:
+
+            print(
+                "\nCould not process:",
+                file_path
+            )
+
+            print(
+                "Error:",
+                e
+            )
+
+    X_memmap.flush()
+    y_memmap.flush()
+
+    print(
+        f"\n{dataset_name} complete."
     )
 
-    y = np.array(
-        y,
-        dtype=np.int32,
+    print(
+        "Windows written:",
+        f"{write_index:,}"
     )
 
-    return X, y
+    return write_index
 
 
 # ============================================================
-# TRAINING DATA
+# LOAD / CREATE CACHE
 # ============================================================
 
-print("\n========================================")
-print("LOADING TRAINING DATA")
-print("========================================")
-
-X_train, y_train = load_user_data(
+train_files = get_user_csv_files(
     train_users
 )
 
-print("\nTraining shapes:")
-print("X_train:", X_train.shape)
-print("y_train:", y_train.shape)
-
-
-# ============================================================
-# VALIDATION DATA
-# ============================================================
-
-print("\n========================================")
-print("LOADING VALIDATION DATA")
-print("========================================")
-
-X_val, y_val = load_user_data(
+val_files = get_user_csv_files(
     val_users
 )
 
-print("\nValidation shapes:")
-print("X_val:", X_val.shape)
-print("y_val:", y_val.shape)
-
-
-# ============================================================
-# TEST DATA
-# ============================================================
-
-print("\n========================================")
-print("LOADING TEST DATA")
-print("========================================")
-
-X_test, y_test = load_user_data(
+test_files = get_user_csv_files(
     test_users
 )
 
-print("\nTest shapes:")
-print("X_test:", X_test.shape)
-print("y_test:", y_test.shape)
+
+cache_exists = (
+    TRAIN_X_PATH.exists()
+    and TRAIN_Y_PATH.exists()
+    and VAL_X_PATH.exists()
+    and VAL_Y_PATH.exists()
+    and TEST_X_PATH.exists()
+    and TEST_Y_PATH.exists()
+    and CACHE_INFO_PATH.exists()
+)
+
+
+if cache_exists:
+
+    print("\n========================================")
+    print("CACHE FOUND")
+    print("========================================")
+
+    with open(
+        CACHE_INFO_PATH,
+        "r"
+    ) as f:
+
+        cache_info = json.load(f)
+
+    train_count = cache_info["train_count"]
+    val_count = cache_info["val_count"]
+    test_count = cache_info["test_count"]
+
+    print(
+        "Training windows:",
+        f"{train_count:,}"
+    )
+
+    print(
+        "Validation windows:",
+        f"{val_count:,}"
+    )
+
+    print(
+        "Test windows:",
+        f"{test_count:,}"
+    )
+
+    with open(
+        SCALER_PATH,
+        "rb"
+    ) as file:
+
+        scaler = pickle.load(file)
+
+else:
+
+    print("\n========================================")
+    print("NO CACHE FOUND")
+    print("========================================")
+
+    (
+        scaler,
+        train_count,
+        val_count,
+        test_count,
+    ) = first_pass(
+        train_files,
+        val_files,
+        test_files,
+    )
+
+    (
+        X_train,
+        y_train,
+        X_val,
+        y_val,
+        X_test,
+        y_test,
+    ) = create_memmaps(
+        train_count,
+        val_count,
+        test_count,
+    )
+
+    # --------------------------------------------------------
+    # Fill training data
+    # --------------------------------------------------------
+
+    fill_memmap(
+        train_files,
+        scaler,
+        X_train,
+        y_train,
+        "TRAIN",
+    )
+
+    # --------------------------------------------------------
+    # Fill validation data
+    # --------------------------------------------------------
+
+    fill_memmap(
+        val_files,
+        scaler,
+        X_val,
+        y_val,
+        "VALIDATION",
+    )
+
+    # --------------------------------------------------------
+    # Fill test data
+    # --------------------------------------------------------
+
+    fill_memmap(
+        test_files,
+        scaler,
+        X_test,
+        y_test,
+        "TEST",
+    )
+
+    cache_info = {
+        "train_count": train_count,
+        "val_count": val_count,
+        "test_count": test_count,
+        "window_size": WINDOW_SIZE,
+        "num_channels": NUM_CHANNELS,
+    }
+
+    with open(
+        CACHE_INFO_PATH,
+        "w"
+    ) as f:
+
+        json.dump(
+            cache_info,
+            f,
+            indent=4
+        )
+
+    print(
+        "\nCache information saved to:",
+        CACHE_INFO_PATH
+    )
+
+
+# ============================================================
+# OPEN MEMMAPS
+# ============================================================
+
+print("\n========================================")
+print("OPENING DATASETS")
+print("========================================")
+
+X_train = np.memmap(
+    TRAIN_X_PATH,
+    dtype=np.float32,
+    mode="r",
+    shape=(
+        train_count,
+        WINDOW_SIZE,
+        NUM_CHANNELS,
+    ),
+)
+
+y_train = np.memmap(
+    TRAIN_Y_PATH,
+    dtype=np.int32,
+    mode="r",
+    shape=(train_count,),
+)
+
+X_val = np.memmap(
+    VAL_X_PATH,
+    dtype=np.float32,
+    mode="r",
+    shape=(
+        val_count,
+        WINDOW_SIZE,
+        NUM_CHANNELS,
+    ),
+)
+
+y_val = np.memmap(
+    VAL_Y_PATH,
+    dtype=np.int32,
+    mode="r",
+    shape=(val_count,),
+)
+
+X_test = np.memmap(
+    TEST_X_PATH,
+    dtype=np.float32,
+    mode="r",
+    shape=(
+        test_count,
+        WINDOW_SIZE,
+        NUM_CHANNELS,
+    ),
+)
+
+y_test = np.memmap(
+    TEST_Y_PATH,
+    dtype=np.int32,
+    mode="r",
+    shape=(test_count,),
+)
+
+
+print("\nTraining shape:")
+print(X_train.shape)
+
+print(y_train.shape)
+
+print("\nValidation shape:")
+print(X_val.shape)
+
+print(y_val.shape)
+
+print("\nTest shape:")
+print(X_test.shape)
+
+print(y_test.shape)
 
 
 # ============================================================
@@ -355,90 +1040,45 @@ print("========================================")
 
 for i, class_name in enumerate(CLASS_NAMES):
 
-    train_count = np.sum(y_train == i)
-    val_count = np.sum(y_val == i)
-    test_count = np.sum(y_test == i)
+    train_count_class = np.sum(
+        y_train == i
+    )
+
+    val_count_class = np.sum(
+        y_val == i
+    )
+
+    test_count_class = np.sum(
+        y_test == i
+    )
 
     print(
         f"{class_name:10s} | "
-        f"Train: {train_count:5d} | "
-        f"Val: {val_count:5d} | "
-        f"Test: {test_count:5d}"
+        f"Train: {train_count_class:8d} | "
+        f"Val: {val_count_class:8d} | "
+        f"Test: {test_count_class:8d}"
     )
-
-
-# ============================================================
-# NORMALIZE SENSOR FEATURES
-# ============================================================
-
-print("\n========================================")
-print("NORMALIZING SENSOR FEATURES")
-print("========================================")
-
-X_train_2d = X_train.reshape(
-    -1,
-    NUM_CHANNELS,
-)
-
-scaler = StandardScaler()
-
-scaler.fit(X_train_2d)
-
-
-def normalize_sequence(X):
-
-    original_shape = X.shape
-
-    X = X.reshape(
-        -1,
-        NUM_CHANNELS,
-    )
-
-    X = scaler.transform(X)
-
-    X = X.reshape(
-        original_shape
-    )
-
-    return X.astype(np.float32)
-
-
-X_train = normalize_sequence(X_train)
-X_val = normalize_sequence(X_val)
-X_test = normalize_sequence(X_test)
-
-
-with open(
-    SCALER_PATH,
-    "wb",
-) as file:
-
-    pickle.dump(
-        scaler,
-        file,
-    )
-
-
-print(
-    "Scaler saved to:",
-    SCALER_PATH,
-)
 
 
 # ============================================================
 # CLASS WEIGHTS
 # ============================================================
 
-classes = np.unique(y_train)
+classes = np.unique(
+    y_train
+)
 
 weights = compute_class_weight(
     class_weight="balanced",
     classes=classes,
-    y=y_train,
+    y=np.asarray(y_train),
 )
 
 class_weights = dict(
-    zip(classes, weights)
+    zip(
+        classes,
+        weights
+    )
 )
 
 
@@ -451,8 +1091,152 @@ for class_id, weight in class_weights.items():
     print(
         CLASS_NAMES[class_id],
         ":",
-        round(weight, 4),
+        round(weight, 4)
     )
+
+
+# ============================================================
+# TF.DATA INPUT PIPELINE
+# ============================================================
+
+BATCH_SIZE = 64
+
+
+def create_dataset(
+    X,
+    y,
+    batch_size,
+    shuffle,
+):
+
+    # --------------------------------------------------------
+    # Generator
+    #
+    # Reads only enough data for batches instead of converting
+    # the complete memmap into a normal NumPy array.
+    # --------------------------------------------------------
+
+    def generator():
+
+        indices = np.arange(
+            len(X)
+        )
+
+        if shuffle:
+
+            np.random.shuffle(
+                indices
+            )
+
+        for start in range(
+            0,
+            len(indices),
+            batch_size,
+        ):
+
+            batch_indices = indices[
+                start:start + batch_size
+            ]
+
+            batch_x = np.asarray(
+                X[batch_indices],
+                dtype=np.float32
+            )
+
+            batch_y = np.asarray(
+                y[batch_indices],
+                dtype=np.int32
+            )
+
+            yield (
+                batch_x,
+                batch_y
+            )
+
+    output_signature = (
+        tf.TensorSpec(
+            shape=(
+                None,
+                WINDOW_SIZE,
+                NUM_CHANNELS,
+            ),
+            dtype=tf.float32,
+        ),
+        tf.TensorSpec(
+            shape=(None,),
+            dtype=tf.int32,
+        ),
+    )
+
+    dataset = tf.data.Dataset.from_generator(
+        generator,
+        output_signature=output_signature,
+    )
+
+    dataset = dataset.prefetch(
+        tf.data.AUTOTUNE
+    )
+
+    return dataset
+
+
+# ============================================================
+# DATASETS
+# ============================================================
+
+train_dataset = create_dataset(
+    X_train,
+    y_train,
+    BATCH_SIZE,
+    shuffle=True,
+)
+
+val_dataset = create_dataset(
+    X_val,
+    y_val,
+    BATCH_SIZE,
+    shuffle=False,
+)
+
+test_dataset = create_dataset(
+    X_test,
+    y_test,
+    BATCH_SIZE,
+    shuffle=False,
+)
+
+
+TRAIN_STEPS = math.ceil(
+    train_count / BATCH_SIZE
+)
+
+VAL_STEPS = math.ceil(
+    val_count / BATCH_SIZE
+)
+
+TEST_STEPS = math.ceil(
+    test_count / BATCH_SIZE
+)
+
+
+print("\n========================================")
+print("DATASET STEPS")
+print("========================================")
+
+print(
+    "Train steps/epoch:",
+    TRAIN_STEPS
+)
+
+print(
+    "Validation steps:",
+    VAL_STEPS
+)
+
+print(
+    "Test steps:",
+    TEST_STEPS
+)
 
 
 # ============================================================
@@ -476,18 +1260,26 @@ x = layers.LSTM(
     return_sequences=True,
 )(sequence_input)
 
-x = layers.Dropout(0.3)(x)
+x = layers.Dropout(
+    0.3
+)(x)
 
-x = layers.LSTM(32)(x)
+x = layers.LSTM(
+    32
+)(x)
 
-x = layers.Dropout(0.3)(x)
+x = layers.Dropout(
+    0.3
+)(x)
 
 x = layers.Dense(
     32,
     activation="relu",
 )(x)
 
-x = layers.Dropout(0.3)(x)
+x = layers.Dropout(
+    0.3
+)(x)
 
 output = layers.Dense(
     NUM_CLASSES,
@@ -506,6 +1298,10 @@ model.summary()
 # ============================================================
 # COMPILE
 # ============================================================
+
+print("\n========================================")
+print("COMPILE")
+print("========================================")
 
 model.compile(
     optimizer=tf.keras.optimizers.Adam(
@@ -542,20 +1338,49 @@ print("\n========================================")
 print("TRAINING")
 print("========================================")
 
+print(
+    "Batch size:",
+    BATCH_SIZE
+)
+
+print(
+    "Training windows:",
+    f"{train_count:,}"
+)
+
+print(
+    "Steps per epoch:",
+    TRAIN_STEPS
+)
+
+print(
+    "Expected training epochs:",
+    50
+)
+
+print(
+    "GPU devices:",
+    tf.config.list_physical_devices("GPU")
+)
+
+
 history = model.fit(
-    X_train,
-    y_train,
-    validation_data=(
-        X_val,
-        y_val,
-    ),
+    train_dataset,
+    validation_data=val_dataset,
+
     epochs=50,
-    batch_size=32,
+
+    steps_per_epoch=TRAIN_STEPS,
+
+    validation_steps=VAL_STEPS,
+
     class_weight=class_weights,
+
     callbacks=[
         early_stopping,
         model_checkpoint,
     ],
+
     verbose=1,
 )
 
@@ -564,11 +1389,13 @@ history = model.fit(
 # SAVE MODEL
 # ============================================================
 
-model.save(MODEL_PATH)
+model.save(
+    MODEL_PATH
+)
 
 print(
     "\nModel saved to:",
-    MODEL_PATH,
+    MODEL_PATH
 )
 
 
@@ -581,8 +1408,8 @@ print("TESTING")
 print("========================================")
 
 test_loss, test_accuracy = model.evaluate(
-    X_test,
-    y_test,
+    test_dataset,
+    steps=TEST_STEPS,
     verbose=1,
 )
 
@@ -597,8 +1424,13 @@ print(test_accuracy)
 # PREDICTIONS
 # ============================================================
 
+print("\n========================================")
+print("PREDICTIONS")
+print("========================================")
+
 y_probability = model.predict(
-    X_test,
+    test_dataset,
+    steps=TEST_STEPS,
     verbose=1,
 )
 
@@ -607,23 +1439,30 @@ y_pred = np.argmax(
     axis=1,
 )
 
+# Ensure exact test length
+y_pred = y_pred[:len(y_test)]
+
 
 # ============================================================
 # METRICS
 # ============================================================
 
+y_test_array = np.asarray(
+    y_test
+)
+
 accuracy = accuracy_score(
-    y_test,
+    y_test_array,
     y_pred,
 )
 
 balanced_accuracy = balanced_accuracy_score(
-    y_test,
+    y_test_array,
     y_pred,
 )
 
 macro_f1 = f1_score(
-    y_test,
+    y_test_array,
     y_pred,
     average="macro",
 )
@@ -650,11 +1489,11 @@ print(
 
 
 # ============================================================
-# SAVE METRICS
+# CLASSIFICATION REPORT
 # ============================================================
 
 report = classification_report(
-    y_test,
+    y_test_array,
     y_pred,
     target_names=CLASS_NAMES,
     digits=4,
@@ -666,6 +1505,7 @@ print("========================================")
 
 print(report)
 
+
 with open(
     METRICS_DIR.joinpath(
         "classification_report.txt"
@@ -673,8 +1513,14 @@ with open(
     "w",
 ) as file:
 
-    file.write(report)
+    file.write(
+        report
+    )
 
+
+# ============================================================
+# SAVE METRICS
+# ============================================================
 
 with open(
     METRICS_DIR.joinpath(
@@ -710,15 +1556,20 @@ with open(
 # ============================================================
 
 cm = confusion_matrix(
-    y_test,
+    y_test_array,
     y_pred,
+    labels=np.arange(
+        NUM_CLASSES
+    ),
 )
+
 
 print("\n========================================")
 print("CONFUSION MATRIX")
 print("========================================")
 
 print(cm)
+
 
 disp = ConfusionMatrixDisplay(
     confusion_matrix=cm,
@@ -758,14 +1609,20 @@ plt.plot(
     label="Validation Accuracy",
 )
 
-plt.xlabel("Epoch")
-plt.ylabel("Accuracy")
+plt.xlabel(
+    "Epoch"
+)
+
+plt.ylabel(
+    "Accuracy"
+)
 
 plt.title(
     "Raw-Input LSTM Training and Validation Accuracy"
 )
 
 plt.legend()
+
 plt.grid()
 
 plt.savefig(
@@ -793,14 +1650,20 @@ plt.plot(
     label="Validation Loss",
 )
 
-plt.xlabel("Epoch")
-plt.ylabel("Loss")
+plt.xlabel(
+    "Epoch"
+)
+
+plt.ylabel(
+    "Loss"
+)
 
 plt.title(
     "Raw-Input LSTM Training and Validation Loss"
 )
 
 plt.legend()
+
 plt.grid()
 
 plt.savefig(
@@ -822,13 +1685,15 @@ print("========================================")
 
 number_to_show = min(
     20,
-    len(y_test),
+    len(y_test_array),
 )
 
-for i in range(number_to_show):
+for i in range(
+    number_to_show
+):
 
     actual = CLASS_NAMES[
-        y_test[i]
+        y_test_array[i]
     ]
 
     predicted = CLASS_NAMES[
@@ -836,7 +1701,9 @@ for i in range(number_to_show):
     ]
 
     confidence = (
-        np.max(y_probability[i])
+        np.max(
+            y_probability[i]
+        )
         * 100
     )
 
@@ -864,4 +1731,9 @@ print(
 print(
     "Scaler:",
     SCALER_PATH,
+)
+
+print(
+    "Cache:",
+    CACHE_DIR,
 )
