@@ -134,11 +134,26 @@ class SensorDataset(Dataset):
 
 
         # ----------------------------------------------------
-        # Chunk sizes
+        # PRELOAD everything into RAM, once.
+        #
+        # Instead of re-opening / decompressing a .npz chunk
+        # file every time __getitem__ crosses into a new
+        # chunk (which happens constantly under shuffle=True),
+        # we pay the decompression cost exactly once here,
+        # then hold plain in-memory numpy arrays for the
+        # entire dataset. __getitem__ then becomes a cheap
+        # in-memory slice instead of a disk read.
         # ----------------------------------------------------
 
-        self.chunk_sizes = []
+        print(
+            f"Preloading {len(self.chunk_files)} "
+            f"chunk file(s) from {self.data_dir} "
+            f"into RAM..."
+        )
 
+        X_parts = []
+
+        y_parts = []
 
         for chunk_file in self.chunk_files:
 
@@ -146,29 +161,41 @@ class SensorDataset(Dataset):
                 chunk_file
             )
 
-            self.chunk_sizes.append(
-                len(
-                    data["y"]
-                )
+            # Normalize once here too, so we don't repeat
+            # this arithmetic on every __getitem__ call.
+
+            X_chunk = (
+                data["X"].astype(np.float32)
+                - self.mean
+            ) / self.std
+
+            X_parts.append(
+                X_chunk.astype(np.float32)
             )
 
+            y_parts.append(
+                data["y"]
+            )
 
-        # ----------------------------------------------------
-        # Cumulative sizes
-        # ----------------------------------------------------
-
-        self.cumulative_sizes = np.cumsum(
-            self.chunk_sizes
+        self.X = np.concatenate(
+            X_parts,
+            axis=0
         )
 
+        self.y = np.concatenate(
+            y_parts,
+            axis=0
+        )
 
-        # ----------------------------------------------------
-        # Cache
-        # ----------------------------------------------------
+        # Free the intermediate per-chunk lists now that
+        # they're merged into two big arrays.
 
-        self.cached_chunk_index = None
+        del X_parts, y_parts
 
-        self.cached_data = None
+        print(
+            f"Preloaded {len(self.y)} samples "
+            f"({self.X.nbytes / 1e9:.2f} GB in RAM)."
+        )
 
 
     # ========================================================
@@ -177,9 +204,7 @@ class SensorDataset(Dataset):
 
     def __len__(self):
 
-        return int(
-            self.cumulative_sizes[-1]
-        )
+        return len(self.y)
 
 
     # ========================================================
@@ -192,100 +217,17 @@ class SensorDataset(Dataset):
     ):
 
         # ----------------------------------------------------
-        # Find chunk
-        # ----------------------------------------------------
-
-        chunk_index = int(
-            np.searchsorted(
-                self.cumulative_sizes,
-                index,
-                side="right"
-            )
-        )
-
-
-        # ----------------------------------------------------
-        # Local index
-        # ----------------------------------------------------
-
-        if chunk_index == 0:
-
-            local_index = index
-
-        else:
-
-            local_index = (
-                index
-                -
-                self.cumulative_sizes[
-                    chunk_index - 1
-                ]
-            )
-
-
-        # ----------------------------------------------------
-        # Load chunk
-        # ----------------------------------------------------
-
-        if (
-            self.cached_chunk_index
-            != chunk_index
-        ):
-
-            self.cached_data = np.load(
-                self.chunk_files[
-                    chunk_index
-                ]
-            )
-
-            self.cached_chunk_index = (
-                chunk_index
-            )
-
-
-        # ----------------------------------------------------
-        # Get X
-        # ----------------------------------------------------
-
-        X = self.cached_data[
-            "X"
-        ][local_index]
-
-
-        # ----------------------------------------------------
-        # Get label
-        # ----------------------------------------------------
-
-        y = self.cached_data[
-            "y"
-        ][local_index]
-
-
-        # ----------------------------------------------------
-        # Normalize
-        # ----------------------------------------------------
-
-        X = (
-            X - self.mean
-        ) / self.std
-
-
-        # ----------------------------------------------------
-        # Convert to tensor
+        # Already normalized and in RAM - just slice + convert
         # ----------------------------------------------------
 
         X = torch.from_numpy(
-            X.astype(
-                np.float32
-            )
+            self.X[index]
         )
-
 
         y = torch.tensor(
-            y,
+            self.y[index],
             dtype=torch.long
         )
-
 
         return X, y
 
@@ -336,7 +278,14 @@ train_loader = DataLoader(
 
     shuffle=True,
 
-    num_workers=0
+    num_workers=0,        # data is preloaded in-RAM (only ~3.4GB) and
+                          # __getitem__ is now a cheap array slice, so
+                          # extra worker processes aren't needed - and
+                          # on Windows, num_workers>0 requires the
+                          # "if __name__ == '__main__':" guard, which
+                          # this flat script doesn't have
+
+    pin_memory=True       # still speeds up the CPU -> GPU transfer
 )
 
 
@@ -348,7 +297,9 @@ val_loader = DataLoader(
 
     shuffle=False,
 
-    num_workers=0
+    num_workers=0,
+
+    pin_memory=True
 )
 
 
@@ -596,11 +547,13 @@ def train_one_epoch():
         # ----------------------------------------------------
 
         X = X.to(
-            device
+            device,
+            non_blocking=True
         )
 
         y = y.to(
-            device
+            device,
+            non_blocking=True
         )
 
 
@@ -731,11 +684,13 @@ def validate():
         for X, y in val_loader:
 
             X = X.to(
-                device
+                device,
+                non_blocking=True
             )
 
             y = y.to(
-                device
+                device,
+                non_blocking=True
             )
 
 
