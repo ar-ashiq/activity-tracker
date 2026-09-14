@@ -86,6 +86,9 @@ LABEL_MAP = {
     "Walking": 0,
     "Running": 1,
     "Sitting": 2,
+    "Bicycling": 3,
+    "Lying": 4,
+    "Standing": 5,
 }
 
 NUM_CLASSES = len(CLASS_NAMES)
@@ -721,6 +724,7 @@ with open(
 cm = confusion_matrix(
     y_test,
     y_pred,
+    labels=np.arange(NUM_CLASSES)
 )
 
 print("\n========================================")
