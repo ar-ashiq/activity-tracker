@@ -1,10 +1,7 @@
 import pandas as pd
-import os
-import glob
+from pathlib import Path
 
-from paths import LABEL_DIR
-
-folder_path = LABEL_DIR
+from paths import LABEL_DIR, RAW_FEATURES_LABELS_DIR
 
 phrases = [
     "raw_magnet",
@@ -65,12 +62,18 @@ phrases = [
 ]
 
 
-def remove_columns(input_folder=folder_path):
-    """Remove unwanted columns from every CSV file in the input folder."""
-    csv_files = glob.glob(os.path.join(input_folder, "*.csv"))
+def remove_columns(
+    input_folder: Path = RAW_FEATURES_LABELS_DIR,
+    output_folder: Path = LABEL_DIR,
+):
+    """Remove unwanted columns and write cleaned CSVs to the labels directory."""
+    input_folder = Path(input_folder)
+    output_folder = Path(output_folder)
+    output_folder.mkdir(parents=True, exist_ok=True)
+    csv_files = sorted(input_folder.glob("*.csv"))
 
     for file in csv_files:
-        print(f"\nProcessing: {os.path.basename(file)}")
+        print(f"\nProcessing: {file.name}")
 
         df = pd.read_csv(file)
 
@@ -90,7 +93,9 @@ def remove_columns(input_folder=folder_path):
 
             df.drop(columns=[computer_col], inplace=True)
 
-        df.to_csv(file, index=False)
+        output_file = output_folder / file.name
+        df.to_csv(output_file, index=False)
+        print(f"Saved cleaned CSV: {output_file}")
 
         print("Removed columns:")
         for col in columns_to_remove:

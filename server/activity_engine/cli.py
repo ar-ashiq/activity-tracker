@@ -21,6 +21,7 @@ def run(json_path):
         intent = sanitize(raw)
         res = answer(intent, timeline)
 
+        print("\nIntent:", intent["intent"])
         print("\nAnswer:", res["answer"])
         print("Evidence:", len(res["evidence"]))
         print()

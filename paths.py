@@ -11,6 +11,9 @@ SOURCE_DIR = DATASETS_DIR.joinpath("source")
 LABEL_DIR = SOURCE_DIR.joinpath("labels")
 
 RAW_DIR = DATASETS_DIR.joinpath("raw")
+RAW_FEATURES_LABELS_DIR = RAW_DIR.joinpath(
+    "ExtraSensory.per_uuid_features_labels"
+)
 RAW_ACC_DIR = RAW_DIR.joinpath("acc")
 RAW_GYRO_DIR = RAW_DIR.joinpath("gyro")
 

@@ -38,6 +38,11 @@ def filter_time(timeline, time):
         start = end = time["at"]
 
     return [
-        s for s in timeline
+        {
+            **s,
+            "start": max(s["start"], start),
+            "end": min(s["end"], end),
+        }
+        for s in timeline
         if not (s["end"] < start or s["start"] > end)
     ]

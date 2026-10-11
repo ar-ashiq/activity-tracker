@@ -27,7 +27,6 @@ from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint
 
 from paths import (
     RAW_SYNC_DIR,
-    SYNCHRONIZED_DIR,
     RAW_LSTM_BEST_MODEL_PATH,
     RAW_LSTM_METRICS_DIR,
     RAW_LSTM_MODEL_PATH,
