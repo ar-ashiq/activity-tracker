@@ -163,22 +163,41 @@ if len(users) != 15:
     print("\nWARNING:")
     print("Expected 15 users, but found", len(users))
 
+train_users = [
+    "24E40C4C-A349-4F9F-93AB-01D00FB994AF",
+    "27E04243-B138-4F40-A164-F40B60165CF3",
+    "33A85C34-CFE4-4732-9E73-0A7AC861B27A",
+    "0E6184E1-90C0-48EE-B25A-F1ECB7B9714E",
+    "00EABED2-271D-49D8-B599-1D4A09240601",
+    "4FC32141-E888-4BFF-8804-12559A491D8C",
+    "7D9BB102-A612-4E2A-8E22-3159752F55D8",
+    "4E98F91F-4654-42EF-B908-A3389443F2E7",
+    "1DBB0F6F-1F81-4A50-9DF4-CD62ACFA4842",
+    "0BFC35E2-4817-4865-BFA7-764742302A2D",
+]
 
-# ============================================================
-# USER SPLIT
-# ============================================================
+val_users = [
+    "11B5EC4D-4133-4289-B475-4E737182A406",
+    "5EF64122-B513-46AE-BCF1-E62AAC285D2C",
+]
 
-rng = np.random.default_rng(42)
+test_users = [
+    "0A986513-7828-4D53-AA1F-E02D6DF9561B",
+    "7CE37510-56D0-4120-A1CF-0E23351428D2",
+    "2C32C23E-E30C-498A-8DD2-0EFB9150A02E",
+]
 
-users = np.array(users)
+split_users = train_users + val_users + test_users
+missing_users = sorted(set(split_users) - set(users))
+overlap_users = sorted(
+    {user for user in split_users if split_users.count(user) > 1}
+)
 
-rng.shuffle(users)
+if missing_users:
+    raise ValueError(f"Fixed split users are missing from {DATA_DIR}: {missing_users}")
 
-train_users = users[:10]
-
-val_users = users[10:12]
-
-test_users = users[12:15]
+if overlap_users:
+    raise ValueError(f"Fixed split contains overlapping users: {overlap_users}")
 
 
 print("\n========================================")
