@@ -12,5 +12,8 @@ VALID_INTENTS = {
     "activity_duration",
     "activity_time_range",
     "activity_count",
-    "activity_summary"
+    "activity_presence",
+    "activity_compare",
+    "activity_summary",
+    "out_of_scope"
 }

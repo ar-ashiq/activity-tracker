@@ -5,7 +5,17 @@ def answer(intent_obj, timeline):
 
     intent = intent_obj["intent"]
     activity = intent_obj.get("activity")
+    compare_activity = intent_obj.get("compare_activity")
+    summary_type = intent_obj.get("summary_type", "most")
     time = intent_obj.get("time", {})
+
+    if intent == "out_of_scope":
+        return {
+            "answer": "I can only answer questions about the recorded activities, such as what you were doing at a time, how long you walked, or which activity occurred most or least.",
+            "evidence": [],
+            "summary": {},
+            "timeline_context": {}
+        }
 
     timeline = filter_time(timeline, time)
 
@@ -35,6 +45,9 @@ def answer(intent_obj, timeline):
             transitions += 1
 
     dominant = max(totals, key=totals.get) if totals else None
+    selected_activity = dominant
+    if summary_type == "least" and totals:
+        selected_activity = min(totals, key=totals.get)
 
     summary = {
         "total_segments": len(enriched),
@@ -47,6 +60,13 @@ def answer(intent_obj, timeline):
     # ----------------------------------------------------
     if intent == "activity_at_time":
         t = time.get("at")
+        if t is None:
+            return {
+                "answer": "A timestamp is required",
+                "evidence": [],
+                "summary": summary,
+                "timeline_context": {}
+            }
 
         match = next(
             (s for s in enriched if s["start"] <= t <= s["end"]),
@@ -75,6 +95,13 @@ def answer(intent_obj, timeline):
     # 2. DURATION
     # ----------------------------------------------------
     if intent == "activity_duration":
+        if activity is None:
+            return {
+                "answer": "An activity is required",
+                "evidence": [],
+                "summary": summary,
+                "timeline_context": {}
+            }
         matches = [s for s in enriched if s["activity"] == activity]
 
         total = sum(s["duration_s"] for s in matches)
@@ -93,6 +120,13 @@ def answer(intent_obj, timeline):
     # 3. COUNT
     # ----------------------------------------------------
     if intent == "activity_count":
+        if activity is None:
+            return {
+                "answer": "An activity is required",
+                "evidence": [],
+                "summary": summary,
+                "timeline_context": {}
+            }
         matches = [s for s in enriched if s["activity"] == activity]
 
         return {
@@ -111,6 +145,13 @@ def answer(intent_obj, timeline):
     # 4. TIME RANGE
     # ----------------------------------------------------
     if intent == "activity_time_range":
+        if activity is None:
+            return {
+                "answer": "An activity is required",
+                "evidence": [],
+                "summary": summary,
+                "timeline_context": {}
+            }
         matches = [s for s in enriched if s["activity"] == activity]
 
         spans = [
@@ -122,8 +163,16 @@ def answer(intent_obj, timeline):
             for s in matches
         ]
 
+        if not spans:
+            answer_text = f"No {activity.lower()} activity was found."
+        else:
+            formatted_spans = ", ".join(
+                f"{span['start']:g}s-{span['end']:g}s" for span in spans
+            )
+            answer_text = f"Yes, the user was {activity.lower()} at: {formatted_spans}."
+
         return {
-            "answer": f"{activity.lower()} occurred {len(matches)} times",
+            "answer": answer_text,
             "evidence": spans,
             "summary": summary,
             "timeline_context": {
@@ -132,14 +181,83 @@ def answer(intent_obj, timeline):
         }
 
     # ----------------------------------------------------
-    # 5. SUMMARY
+    # 5. PRESENCE
+    # ----------------------------------------------------
+    if intent == "activity_presence":
+        if activity is None:
+            return {
+                "answer": "An activity is required",
+                "evidence": [],
+                "summary": summary,
+                "timeline_context": {}
+            }
+
+        matches = [s for s in enriched if s["activity"] == activity]
+        present = bool(matches)
+
+        return {
+            "answer": f"Yes, the user was {activity.lower()}." if present else f"No, the user was not {activity.lower()}.",
+            "evidence": matches,
+            "summary": summary,
+            "timeline_context": {
+                "activity_present": present,
+                "segment_count": len(matches),
+                "total_time": totals.get(activity, 0)
+            }
+        }
+
+    # ----------------------------------------------------
+    # 6. COMPARE ACTIVITIES
+    # ----------------------------------------------------
+    if intent == "activity_compare":
+        if activity is None or compare_activity is None:
+            return {
+                "answer": "Two activities are required",
+                "evidence": [],
+                "summary": summary,
+                "timeline_context": {}
+            }
+
+        first_total = totals.get(activity, 0)
+        second_total = totals.get(compare_activity, 0)
+        if first_total == second_total:
+            answer_text = (
+                f"The user spent the same amount of time in "
+                f"{activity.lower()} and {compare_activity.lower()}."
+            )
+            selected = [activity, compare_activity]
+        else:
+            winner = activity if first_total > second_total else compare_activity
+            loser = compare_activity if winner == activity else activity
+            winner_total = max(first_total, second_total)
+            answer_text = (
+                f"The user spent more time in {winner.lower()} than "
+                f"{loser.lower()} ({round(winner_total / 60, 2)} min)."
+            )
+            selected = [winner]
+
+        return {
+            "answer": answer_text,
+            "evidence": [s for s in enriched if s["activity"] in selected],
+            "summary": summary,
+            "timeline_context": {
+                "durations_sec": {
+                    activity: first_total,
+                    compare_activity: second_total,
+                }
+            }
+        }
+
+    # ----------------------------------------------------
+    # 7. SUMMARY
     # ----------------------------------------------------
     return {
-        "answer": f"Most activity: {dominant.lower() if dominant else 'none'}",
-        "evidence": enriched,
+        "answer": f"{summary_type.capitalize()} activity: {selected_activity.lower() if selected_activity else 'none'}",
+        "evidence": [s for s in enriched if s["activity"] == selected_activity],
         "summary": summary,
         "timeline_context": {
             "transitions": transitions,
-            "activity_distribution": totals
+            "activity_distribution": totals,
+            "summary_type": summary_type,
         }
     }
